@@ -163,3 +163,78 @@ ORDER BY Producto.prod_codigo
 
 -- Mostrar para todos los rubros de artículos código, detalle, cantidad de artículos de ese rubro y stock total de ese rubro de artículos. 
 -- Solo tener en cuenta aquellos artículos que tengan un stock mayor al del artículo ‘00000000’ en el depósito ‘00’
+
+SELECT Rubro.rubr_id AS 'ID de ese Rubro', 
+        Rubro.rubr_detalle AS 'Detalle de ese Rubro', 
+        COUNT(DISTINCT Producto.prod_codigo) AS 'Cantidad de artículos de ese Rubro',
+        SUM(STOCK.stoc_cantidad) AS 'Stock de artículos de ese Rubro'
+FROM Rubro
+JOIN Producto ON Rubro.rubr_id = Producto.prod_rubro
+JOIN STOCK ON Producto.prod_codigo = STOCK.stoc_producto
+JOIN DEPOSITO ON STOCK.stoc_deposito = DEPOSITO.depo_codigo
+WHERE STOCK.stoc_cantidad > ( SELECT stoc_cantidad
+		                FROM STOCK
+		                WHERE stoc_producto = '00000000' AND stoc_deposito = '00'
+		                )
+GROUP BY Rubro.rubr_id, Rubro.rubr_detalle
+ORDER BY Rubro.rubr_detalle
+
+-----------------------------------------------------------7-----------------------------------------------------------
+
+-- Generar una consulta que muestre para cada artículo código, detalle, mayor precio menor precio y % de la diferencia de precios 
+-- (respecto del menor Ej.: menor precio = 10, mayor precio =12 => mostrar 20 %). Mostrar solo aquellos artículos que posean stock.
+
+SELECT Producto.prod_codigo AS 'Codigo de los Productos', 
+        Producto.prod_detalle AS 'Nombre de los Productos',
+        MAX(Item_Factura.item_precio) AS 'Mayor precio historico',
+        MIN(Item_Factura.item_precio) AS 'Menor precio historico',
+        ( ( MAX(Item_Factura.item_precio) - MIN(Item_Factura.item_precio) ) * 100) / MIN(Item_Factura.item_precio) AS 'Diferencia de Precios'
+FROM Producto
+JOIN Item_Factura ON Producto.prod_codigo = Item_Factura.item_producto
+JOIN STOCK ON STOCK.stoc_producto = Producto.prod_codigo
+WHERE STOCK.stoc_cantidad > 0
+GROUP BY Producto.prod_detalle, Producto.prod_codigo
+ORDER BY Producto.prod_detalle
+
+---------------------------------------------------8-----------------------------------------------------------
+
+-- Mostrar para el o los artículos que tengan stock en todos los depósitos, nombre del artículo, stock del depósito que más stock tiene.
+
+SELECT Producto.prod_detalle AS 'Nombre de los Productos',
+        ( SELECT TOP 1 STOCK.stoc_cantidad FROM STOCK JOIN Producto ON Producto.prod_codigo = STOCK.stoc_producto ORDER BY STOCK.stoc_cantidad DESC ) AS 'Stock del depósito que tiene mayor cantidad',
+        count(DISTINCT STOCK.stoc_deposito) AS 'Cantidad de depocitos donde se encuentra el producto'
+FROM Producto
+JOIN STOCK ON STOCK.stoc_producto = Producto.prod_codigo 
+GROUP BY Producto.prod_detalle
+HAVING ( COUNT ( DISTINCT STOCK.stoc_deposito ) ) = ( SELECT ( COUNT(DEPOSITO.depo_codigo) - 30 ) FROM DEPOSITO )
+
+---------------------------------------------------9-----------------------------------------------------------
+
+-- Mostrar el código del jefe, código del empleado que lo tiene como jefe, nombre del mismo y la cantidad de depósitos que ambos tienen asignados.
+
+SELECT Jefe.empl_codigo AS 'Codigo del jefe',
+        Empleado.empl_codigo AS 'Codigo del empleado',
+        Empleado.empl_nombre AS 'Nombre del empleado',
+        COUNT ( DEPOSITO.depo_encargado ) AS 'Depositos Empleado',
+        ( SELECT COUNT ( depo_encargado ) FROM DEPOSITO WHERE Jefe.empl_codigo = depo_encargado ) AS 'Depositos Jefe'
+FROM Empleado
+LEFT JOIN Empleado Jefe ON Jefe.empl_codigo = Empleado.empl_jefe
+LEFT JOIN DEPOSITO ON DEPOSITO.depo_encargado = Empleado.empl_codigo
+GROUP BY Jefe.empl_codigo, Empleado.empl_codigo, Empleado.empl_nombre
+
+---------------------------------------------------10-----------------------------------------------------------
+
+-- Mostrar los 10 productos más vendidos en la historia y también los 10 productos menos vendidos en la historia. 
+-- Además mostrar de esos productos, quien fue el cliente que mayor compra realizo.
+
+
+
+/*
+SELECT
+FROM
+JOIN
+WHERE
+GROUP BY
+HAVING
+ORDER BY
+*/
