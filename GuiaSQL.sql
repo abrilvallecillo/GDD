@@ -308,12 +308,97 @@ ORDER BY SUM( item_cantidad * item_precio) DESC
 
 ---------------------------------------------------13-----------------------------------------------------------
 
--- Realizar una consulta que retorne para cada producto que posea composición nombre del producto, precio del producto, 
---precio de la sumatoria de los precios por la cantidad de los productos que lo componen. 
--- Solo se deberán mostrar los productos que estén compuestos por más de 2 productos y deben ser ordenados de mayor a menor 
---por cantidad de productos que lo componen.
+-- Realizar una consulta que retorne para cada producto que posea composición nombre del producto, precio del producto, precio de la sumatoria de los precios por la cantidad de los productos que lo componen. 
+-- Solo se deberán mostrar los productos que estén compuestos por más de 2 productos y deben ser ordenados de mayor a menor por cantidad de productos que lo componen.
 
+SELECT Producto.prod_detalle AS 'Nombre del producto',
+        Producto.prod_precio AS 'Precio del producto',
+        SUM(Componente.prod_precio * Composicion.comp_cantidad) AS 'Precio de la sumatoria de los precios por la cantidad de los productos que lo componen'
+FROM Composicion -- Una composicion tienen un producto y un componente
+JOIN Producto ON Composicion.comp_producto = Producto.prod_codigo
+JOIN Producto Componente ON Composicion.comp_componente = Componente.prod_codigo
+GROUP BY Producto.prod_detalle, Producto.prod_precio
+HAVING SUM(Composicion.comp_cantidad) > 2
+ORDER BY SUM(Composicion.comp_cantidad) DESC
 
+---------------------------------------------------14-----------------------------------------------------------
+
+-- Escriba una consulta que retorne una estadística de ventas por cliente. Los campos que debe retornar son:
+-- Código del cliente
+-- Cantidad de veces que compro en el último año
+-- Promedio por compra en el último año
+-- Cantidad de productos diferentes que compro en el último año 
+-- Monto de la mayor compra que realizo en el último año
+-- Se deberán retornar todos los clientes ordenados por la cantidad de veces que compro en el último año.
+-- No se deberán visualizar NULLs en ninguna columna
+
+SELECT Cliente.clie_codigo AS 'Código del cliente',
+        COUNT ( Factura.fact_cliente ) AS 'Cantidad de veces que compro en el último año',
+        AVG ( Factura.fact_total ) AS 'Promedio por compra en el último año',
+        COUNT ( DISTINCT Item_Factura.item_producto ) AS 'Cantidad de productos diferentes que compro en el último año',
+        MAX ( Factura.fact_total ) AS 'Monto de la mayor compra que realizo en el último año'
+FROM Cliente 
+JOIN Factura ON Cliente.clie_codigo = Factura.fact_cliente 
+JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+WHERE YEAR ( Factura.fact_fecha ) = ( SELECT TOP 1 YEAR(fact_fecha) FROM Factura ORDER BY fact_fecha DESC )
+GROUP BY Cliente.clie_codigo
+ORDER BY COUNT( Factura.fact_cliente ) DESC
+
+---------------------------------------------------
+
+SELECT Factura.fact_cliente AS 'Código del cliente',
+        COUNT ( Factura.fact_cliente ) AS 'Cantidad de veces que compro en el último año',
+        AVG ( Factura.fact_total ) AS 'Promedio por compra en el último año',
+        COUNT ( DISTINCT Item_Factura.item_producto ) AS 'Cantidad de productos diferentes que compro en el último año',
+        MAX ( Factura.fact_total ) AS 'Monto de la mayor compra que realizo en el último año'
+FROM Factura 
+JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+WHERE YEAR ( Factura.fact_fecha ) = ( SELECT MAX ( YEAR ( fact_fecha ) ) FROM Factura ) 
+GROUP BY Factura.fact_cliente
+ORDER BY COUNT ( Factura.fact_cliente ) DESC
+
+---------------------------------------------------
+
+SELECT C.clie_codigo,
+        COUNT ( DISTINCT F.fact_tipo + F.fact_sucursal + F.fact_numero ) AS [Cantidad de veces que compro en el ultimo año],
+        AVG ( F.fact_total ) AS [Promedio por compra en el ultimo año],
+        COUNT ( DISTINCT IFACT.item_producto ) AS [Cantidad de compras realizadas en el ultimo año],
+        ( SELECT TOP 1 fact_total FROM Factura WHERE fact_cliente = C.clie_codigo AND YEAR(fact_fecha) = ( SELECT TOP 1 YEAR(fact_fecha) FROM Factura ORDER BY fact_fecha DESC ) ORDER BY fact_total DESC ) AS [Monto de la mayor compra en el ultimo año]
+FROM Cliente C
+JOIN Factura F ON F.fact_cliente = C.clie_codigo
+JOIN Item_Factura IFACT ON IFACT.item_numero = F.fact_numero AND IFACT.item_sucursal = F.fact_sucursal AND IFACT.item_tipo = F.fact_tipo
+WHERE YEAR ( F.fact_fecha ) = ( SELECT TOP 1 YEAR ( fact_fecha ) FROM Factura ORDER BY fact_fecha DESC )
+GROUP BY C.clie_codigo
+ORDER BY 2 DESC
+
+---------------------------------------------------
+
+SELECT *
+FROM Cliente -- Tengo 3687 clientes
+JOIN Factura ON Cliente.clie_codigo = Factura.fact_cliente -- De los cuales 3000 compraron alguna vez algo
+JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero -- De los cuales compraron 19484 productos
+
+-- Quien es el cliente que compro cada uno de los productos (19484)
+SELECT Cliente.clie_codigo AS 'Codigo del cliente', 
+        Item_Factura.item_producto AS 'Productos comprados por el cliente'
+FROM Cliente
+JOIN Factura ON Cliente.clie_codigo = Factura.fact_cliente
+JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+
+-- Cuantos productos compro cada cliente
+SELECT Cliente.clie_codigo AS 'Codigo del cliente', 
+        COUNT( DISTINCT Item_Factura.item_producto) AS 'Cantidad de productos comprados por el cliente'
+FROM Cliente
+JOIN Factura ON Cliente.clie_codigo = Factura.fact_cliente
+JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+GROUP BY Cliente.clie_codigo
+
+---------------------------------------------------15---------------------------------------------------
+
+-- Escriba una consulta que retorne los pares de productos que hayan sido vendidos juntos (en la misma factura) más de 500 veces. 
+-- El resultado debe mostrar el código y descripción de cada uno de los productos y la cantidad de veces que fueron vendidos juntos. 
+-- El resultado debe estar ordenado por la cantidad de veces que se vendieron juntos dichos productos. 
+-- Los distintos pares no deben retornarse más de una vez.
 
 
 /*
