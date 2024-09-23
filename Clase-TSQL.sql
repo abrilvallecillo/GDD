@@ -40,7 +40,7 @@ SELECT prod_codigo AS Codigo_del_Prodcuto,
     stoc_deposito AS Codigo_del_Deposito, 
     depo_detalle AS Deposito, 
     stoc_Cantidad AS Cantidad_en_Stock_del_Deposito
-INTO V_Stock
+INTO INTO_Stock
 FROM Producto 
 JOIN Stock ON prod_codigo = stoc_producto 
 JOIN Deposito ON stoc_deposito = depo_codigo
