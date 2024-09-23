@@ -212,15 +212,38 @@ HAVING ( COUNT ( DISTINCT STOCK.stoc_deposito ) ) = ( SELECT ( COUNT(DEPOSITO.de
 
 -- Mostrar el código del jefe, código del empleado que lo tiene como jefe, nombre del mismo y la cantidad de depósitos que ambos tienen asignados.
 
-SELECT Jefe.empl_codigo AS 'Codigo del jefe',
+SELECT Empleado.empl_jefe AS 'Codigo del jefe',
         Empleado.empl_codigo AS 'Codigo del empleado',
-        Empleado.empl_nombre AS 'Nombre del empleado',
+        rtrim(Empleado.empl_nombre) + ' ' + rtrim(Empleado.empl_apellido) AS 'Nombre del empleado',
         COUNT ( DEPOSITO.depo_encargado ) AS 'Depositos Empleado',
-        ( SELECT COUNT ( depo_encargado ) FROM DEPOSITO WHERE Jefe.empl_codigo = depo_encargado ) AS 'Depositos Jefe'
+        ( SELECT COUNT ( depo_encargado ) FROM DEPOSITO WHERE empl_jefe = depo_encargado ) AS 'Depositos Jefe'
 FROM Empleado
-LEFT JOIN Empleado Jefe ON Jefe.empl_codigo = Empleado.empl_jefe
 LEFT JOIN DEPOSITO ON DEPOSITO.depo_encargado = Empleado.empl_codigo
-GROUP BY Jefe.empl_codigo, Empleado.empl_codigo, Empleado.empl_nombre
+WHERE Empleado.empl_jefe IS NOT NULL
+GROUP BY Empleado.empl_jefe, Empleado.empl_codigo, rtrim(Empleado.empl_nombre) + ' ' + rtrim(Empleado.empl_apellido)
+
+--------------------------------------------------
+
+-- 1. Donde esta el codigo del Jefe?
+SELECT empl_jefe 
+FROM Empleado
+
+-- 2. Código del jefe, código del empleado que lo tiene como jefe, nombre del mismo 
+SELECT empl_jefe AS 'Codigo del JEFE', 
+        empl_codigo AS 'Codigo del empleado',
+        rtrim(empl_nombre) + ' ' +rtrim(empl_apellido)AS 'Nombre del empleado'
+FROM Empleado
+WHERE empl_jefe IS NOT NULL
+
+-- 3. Que es tener asignado un deposito? Es que sea el encargado
+SELECT empl_jefe AS 'Codigo del jefe', 
+        empl_codigo AS 'Codigo del empleado',
+        rtrim(empl_nombre) + ' ' + rtrim(empl_apellido)AS 'Nombre del empleado',
+        COUNT (depo_encargado) AS 'Cantidad de depósitos que ambos tienen asignados'
+FROM Empleado
+JOIN DEPOSITO ON depo_encargado = empl_codigo OR depo_encargado = empl_jefe -- Que el empleado o el jefe del empleado esten a cargo de un deposito
+WHERE empl_jefe IS NOT NULL
+GROUP BY empl_jefe, empl_codigo, rtrim(empl_nombre)+ ' ' +rtrim(empl_apellido)
 
 ---------------------------------------------------10-----------------------------------------------------------
 
@@ -236,13 +259,58 @@ SELECT Producto.prod_codigo AS 'Codigo del Producto',
                 WHERE Producto.prod_codigo = Item_Factura.item_producto
 		GROUP BY Factura.fact_cliente
 		ORDER BY SUM(Item_Factura.item_cantidad) DESC
-	) AS 'Cliente que realizó la compra'
+	) AS 'Cliente que mas compras del producto realizó'
 FROM Producto
 JOIN Item_Factura ON Producto.prod_codigo = Item_Factura.item_producto
 WHERE Producto.prod_codigo IN ( SELECT TOP 10 item_producto FROM Item_Factura GROUP BY item_producto ORDER BY SUM(item_cantidad) DESC ) -- Menos vendidas
    OR Producto.prod_codigo IN( SELECT TOP 10 item_producto FROM Item_Factura GROUP BY item_producto ORDER BY SUM(item_cantidad) ASC ) -- Mas vendidas
 GROUP BY Producto.prod_detalle, Producto.prod_codigo
 ORDER BY SUM(Item_Factura.item_cantidad) 
+
+---------------------------------------------------
+
+-- 1. Me fijo si los productos estan en el subconjunto de los productos mas vendidos o de los menos vendidos
+
+SELECT prod_codigo AS 'Codigo del Producto', 
+       prod_detalle AS 'Detalle del Producto'
+FROM Producto
+WHERE prod_codigo IN (
+    SELECT TOP 10 item_producto 
+    FROM Item_Factura 
+    GROUP BY item_producto 
+    ORDER BY SUM(item_cantidad) DESC  
+) -- Más vendidos
+OR prod_codigo IN (
+    SELECT TOP 10 item_producto 
+    FROM Item_Factura 
+    GROUP BY item_producto 
+    ORDER BY SUM(item_cantidad) ASC 
+); -- Menos vendidos
+
+-- 2. El que mas... SELECT TOP 1...
+
+SELECT prod_codigo AS 'Codigo del Producto', 
+       prod_detalle AS 'Detalle del Producto',
+        ( SELECT TOP 1 fact_cliente 
+                FROM Factura
+                JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+                WHERE prod_codigo = item_producto
+		GROUP BY fact_cliente
+		ORDER BY SUM(item_cantidad) DESC
+	) AS 'Cliente que mas compras del producto realizó'
+FROM Producto
+WHERE prod_codigo IN (
+    SELECT TOP 10 item_producto 
+    FROM Item_Factura 
+    GROUP BY item_producto 
+    ORDER BY SUM(item_cantidad) DESC  
+) -- Más vendidos
+OR prod_codigo IN (
+    SELECT TOP 10 item_producto 
+    FROM Item_Factura 
+    GROUP BY item_producto 
+    ORDER BY SUM(item_cantidad) ASC 
+); -- Menos vendidos
 
 ---------------------------------------------------11-----------------------------------------------------------
 

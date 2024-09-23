@@ -50,3 +50,15 @@ JOIN Deposito ON stoc_deposito = depo_codigo
 -- INTO es estatico, la vista es dinamica
 -- La vista devuelve lo que esta en el momento en la tabla original
 -- INTO es un duplicado de una tabla, por ende sirve como back up
+
+-- Crea la vista materializada
+CREATE VIEW V_FACTURAS (CLIENTE, PRODUCTO, TOTAL)
+WITH SCHEMABINDING
+AS
+SELECT FACT_CLIENTE, item_producto, COUNT_BIG(*) -- La diferencia entre COUNT(*) y COUNT_BIG(*) es que COUNT(*) devuelve un número de 4 bytes y COUNT_BIG(*) un número de 8 bytes
+FROM dbo.FACTURA F 
+JOIN dbo.Item_Factura I ON (fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero)
+group by FACT_CLIENTE, item_producto
+
+-- Crea el índice CLUSTERED
+CREATE UNIQUE CLUSTERED INDEX CI_Facturas_Ventas ON V_FACTURAS (Cliente, PRODUCTO)
