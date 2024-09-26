@@ -317,62 +317,128 @@ OR prod_codigo IN (
 -- Realizar una consulta que retorne el detalle de la familia, la cantidad diferentes de productos vendidos y el monto de dichas ventas sin impuestos. 
 -- Los datos se deberán ordenar de mayor a menor, por la familia que más productos diferentes vendidos tenga, solo se deberán mostrar las familias que tengan una venta superior a 20000 pesos para el año 2012.
 
+
+---------------------------------------------------
+
+-- 1. Devolver el detalle de una familia, la cantidad de productos vendidos y el monto... DONDE LO ENCUENTRO??
+
 SELECT Familia.fami_detalle AS 'Detalle de la familia',
         COUNT( DISTINCT Producto.prod_detalle) AS 'Cantidad diferentes de productos vendidos',
-        SUM(Factura.fact_total) AS 'Monto de dichas ventas sin impuestos'
-FROM Producto
-JOIN Familia ON Producto.prod_familia = Familia.fami_id
-JOIN Item_Factura ON Producto.prod_codigo = Item_Factura.item_producto
-JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+        SUM( item_precio * item_cantidad ) AS 'Total de ventas'
+FROM Item_Factura 
+JOIN Producto ON Item_Factura.item_producto = Producto.prod_codigo 
+JOIN Familia ON Familia.fami_id = Producto.prod_familia
+GROUP BY Familia.fami_detalle
+
+-- 2. Como pide ordenar
+
+SELECT Familia.fami_detalle AS 'Detalle de la familia',
+        COUNT( DISTINCT Producto.prod_detalle) AS 'Cantidad diferentes de productos vendidos',
+        SUM( item_precio * item_cantidad ) AS 'Total de ventas'
+FROM Item_Factura 
+JOIN Producto ON Item_Factura.item_producto = Producto.prod_codigo 
+JOIN Familia ON Familia.fami_id = Producto.prod_familia
+GROUP BY Familia.fami_detalle
+ORDER BY COUNT( DISTINCT Producto.prod_detalle) DESC
+
+-- 3. Aplicar la condicion  
+
+SELECT Familia.fami_detalle AS 'Detalle de la familia',
+        COUNT( DISTINCT Producto.prod_detalle) AS 'Cantidad diferentes de productos vendidos',
+        SUM( item_precio * item_cantidad ) AS 'Total de ventas'
+FROM Item_Factura 
+JOIN Producto ON Item_Factura.item_producto = Producto.prod_codigo 
+JOIN Familia ON Familia.fami_id = Producto.prod_familia
+WHERE Familia.fami_id IN ( SELECT Producto.prod_familia
+		        FROM Producto
+                        JOIN Item_Factura ON Producto.prod_codigo = Item_Factura.item_producto
+                        JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+		        WHERE YEAR(fact_fecha) = 2012
+		        GROUP BY Producto.prod_familia
+		        HAVING SUM (item_precio * item_cantidad ) > 20000
+		        )
 GROUP BY Familia.fami_detalle, Familia.fami_id
-HAVING EXISTS( SELECT TOP 1 Factura.fact_numero
-		FROM Factura
-                JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
-		JOIN Producto ON Producto.prod_codigo = Item_Factura.item_producto
-		WHERE YEAR(fact_fecha) = 2012 AND Producto.prod_familia = Familia.fami_id
-		GROUP BY Factura.fact_numero
-		HAVING SUM (fact_total) > 2000
-		)
 ORDER BY COUNT( DISTINCT Producto.prod_detalle) DESC
 
 ---------------------------------------------------12-----------------------------------------------------------
 
--- Mostrar nombre de producto, cantidad de clientes distintos que lo compraron importe promedio pagado por el producto, cantidad de depósitos en los cuales hay stock del producto y stock actual del producto en todos los depósitos. 
+-- Mostrar nombre de producto, cantidad de clientes distintos que lo compraron, importe promedio pagado por el producto, cantidad de depósitos en los cuales hay stock del producto y stock actual del producto en todos los depósitos. 
 -- Se deberán mostrar aquellos productos que hayan tenido operaciones en el año 2012 y los datos deberán ordenarse de mayor a menor por monto vendido del producto.
 
 SELECT Producto.prod_detalle AS 'Nombre de producto',
-       COUNT(DISTINCT Factura.fact_cliente) AS 'Cantidad de clientes distintos que lo compraron importe promedio pagado por el producto',
-        ( SELECT COUNT(DISTINCT stoc_deposito) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto ) AS 'Cantidad de depósitos en los cuales hay stock del producto',
-        ( SELECT SUM(stoc_cantidad) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto ) AS 'Stock actual del producto en todos los depósitos'
+       COUNT(DISTINCT Factura.fact_cliente) AS 'Cantidad de clientes distintos que lo compraron',
+        AVG (Item_Factura.item_precio) AS 'Importe promedio pagado por el producto',
+        ( SELECT COUNT(DISTINCT stoc_deposito) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto AND STOCK.stoc_cantidad > 0) AS 'Cantidad de depósitos en los cuales hay stock del producto',
+        (SELECT SUM(stoc_cantidad) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto ) AS 'Stock actual del producto en todos los depósitos'
 -- CONVIENE USAR SUBS SELECTS PARA OBTENER UN RESULTADO PUNTUAL
 -- NO CONVENIA HACER JOIN CON STOCK PORQUE ME AGRANDABA DEMASIADO EL UNIVERSO
 FROM Producto
 JOIN Item_Factura ON Producto.prod_codigo = Item_Factura.item_producto
 JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
-WHERE YEAR(Factura.fact_fecha) = 2012
+WHERE Producto.prod_codigo in (SELECT Item_factura.item_producto 
+                        FROM Item_factura 
+                        JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+                        WHERE year (Factura.fact_fecha) = 2012
+                        )
 GROUP BY Producto.prod_detalle, Producto.prod_codigo
 ORDER BY SUM(Item_Factura.item_cantidad * Item_Factura.item_precio) DESC
 
 ---------------------------------------------------
 
-SELECT  Producto.prod_detalle 
-        AS 'Nombre de producto',
-       
-        ( SELECT COUNT ( DISTINCT fact_cliente ) FROM Factura JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero WHERE item_producto = prod_codigo ) 
-        AS 'Cantidad de clientes distintos que lo compraron importe promedio pagado por el producto',
-       
-        ( SELECT COUNT ( stoc_deposito ) FROM STOCK WHERE stoc_producto = prod_codigo AND ISNULL ( stoc_cantidad , 0 ) > 0 ) 
-        AS 'Cantidad de depósitos en los cuales hay stock del producto',
-       
-        isnull ( ( SELECT SUM ( isnull ( stoc_cantidad,0 ) ) FROM STOCK WHERE stoc_producto = prod_codigo ) , 0 ) 
-        AS 'Stock actual del producto en todos los depósitos'
+-- 1. Parcializar las consultas
+        -- Nombre del producto 
+
+SELECT Producto.prod_detalle  AS 'Nombre de producto'
+FROM Producto -- ACA LA ATOMICIDAD ME LA DA PRODUCTO
+
+        -- Cantidad de clientes distintos que lo compraron 
+
+SELECT Producto.prod_detalle  AS 'Nombre de producto',
+        COUNT( DISTINCT Factura.fact_cliente) AS 'Cantidad de clientes distintos que lo compraron'
+FROM Producto 
+JOIN Item_Factura ON item_producto = prod_codigo -- ACA LA ATOMICIDAD ME LA DA ITEM_PRODUCTO
+JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+GROUP BY Producto.prod_detalle 
+
+        -- Importe promedio pagado por el producto
+
+SELECT Producto.prod_detalle  AS 'Nombre de producto',
+        COUNT( DISTINCT Factura.fact_cliente) AS 'Cantidad de clientes distintos que lo compraron',
+        AVG (Item_Factura.item_precio) AS 'Importe promedio pagado por el producto'
 FROM Producto 
 JOIN Item_Factura ON item_producto = prod_codigo
 JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
-WHERE YEAR(fact_fecha) = 2012
-GROUP BY prod_codigo, prod_detalle
---se interpreta ordenar por monto vendido en 2012
-ORDER BY SUM( item_cantidad * item_precio) DESC
+GROUP BY Producto.prod_detalle 
+
+        -- Cantidad de depósitos en los cuales hay stock del producto
+
+SELECT Producto.prod_detalle  AS 'Nombre de producto',
+        COUNT( DISTINCT Factura.fact_cliente) AS 'Cantidad de clientes distintos que lo compraron',
+        AVG (Item_Factura.item_precio) AS 'Importe promedio pagado por el producto',
+       COUNT(DISTINCT STOCK.stoc_deposito)  AS 'Cantidad de depósitos en los cuales hay stock del producto'
+FROM Producto 
+JOIN Item_Factura ON item_producto = prod_codigo 
+JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+JOIN STOCK ON prod_codigo = stoc_producto
+GROUP BY Producto.prod_detalle 
+
+        -- Stock actual del producto en todos los depósitos
+
+SELECT Producto.prod_detalle  AS 'Nombre de producto',
+        COUNT( DISTINCT Factura.fact_cliente) AS 'Cantidad de clientes distintos que lo compraron',
+        AVG (Item_Factura.item_precio) AS 'Importe promedio pagado por el producto',
+        ( SELECT COUNT(DISTINCT stoc_deposito) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto AND STOCK.stoc_cantidad > 0) AS 'Cantidad de depósitos en los cuales hay stock del producto',
+        ( SELECT SUM(stoc_cantidad) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto ) AS 'Stock actual del producto en todos los depósitos'
+FROM Producto 
+JOIN Item_Factura ON item_producto = prod_codigo 
+JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+WHERE prod_codigo in (SELECT item_producto 
+                        FROM Item_factura 
+                        JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+                        WHERE year (fact_fecha) = 2012
+                        ) -- Que hayan tenido operaciones en 2012, pero no necesariamente solo en 2012
+GROUP BY Producto.prod_detalle, Producto.prod_codigo
+ORDER BY SUM(Item_Factura.item_cantidad * Item_Factura.item_precio) DESC
 
 ---------------------------------------------------13-----------------------------------------------------------
 
