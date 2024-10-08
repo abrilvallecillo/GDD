@@ -251,8 +251,11 @@ GROUP BY empl_jefe, empl_codigo, rtrim(empl_nombre)+ ' ' +rtrim(empl_apellido)
 -- Además mostrar de esos productos, quien fue el cliente que mayor compra realizo.
 
 SELECT Producto.prod_codigo AS 'Codigo del Producto', 
+        
         Producto.prod_detalle AS 'Detalle del Producto', 
+        
         SUM(Item_Factura.item_cantidad) AS 'Cantidades',
+
         ( SELECT TOP 1 Factura.fact_cliente 
                 FROM Factura
                 JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
@@ -260,6 +263,7 @@ SELECT Producto.prod_codigo AS 'Codigo del Producto',
 		GROUP BY Factura.fact_cliente
 		ORDER BY SUM(Item_Factura.item_cantidad) DESC
 	) AS 'Cliente que mas compras del producto realizó'
+
 FROM Producto
 JOIN Item_Factura ON Producto.prod_codigo = Item_Factura.item_producto
 WHERE Producto.prod_codigo IN ( SELECT TOP 10 item_producto FROM Item_Factura GROUP BY item_producto ORDER BY SUM(item_cantidad) DESC ) -- Menos vendidas
@@ -290,7 +294,9 @@ OR prod_codigo IN (
 -- 2. El que mas... SELECT TOP 1...
 
 SELECT prod_codigo AS 'Codigo del Producto', 
+
        prod_detalle AS 'Detalle del Producto',
+
         ( SELECT TOP 1 fact_cliente 
                 FROM Factura
                 JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
@@ -298,18 +304,19 @@ SELECT prod_codigo AS 'Codigo del Producto',
 		GROUP BY fact_cliente
 		ORDER BY SUM(item_cantidad) DESC
 	) AS 'Cliente que mas compras del producto realizó'
+
 FROM Producto
 WHERE prod_codigo IN (
-    SELECT TOP 10 item_producto 
-    FROM Item_Factura 
-    GROUP BY item_producto 
-    ORDER BY SUM(item_cantidad) DESC  
+                SELECT TOP 10 item_producto 
+                FROM Item_Factura 
+                GROUP BY item_producto 
+                ORDER BY SUM(item_cantidad) DESC  
 ) -- Más vendidos
 OR prod_codigo IN (
-    SELECT TOP 10 item_producto 
-    FROM Item_Factura 
-    GROUP BY item_producto 
-    ORDER BY SUM(item_cantidad) ASC 
+                SELECT TOP 10 item_producto 
+                FROM Item_Factura 
+                GROUP BY item_producto 
+                ORDER BY SUM(item_cantidad) ASC 
 ); -- Menos vendidos
 
 ---------------------------------------------------11-----------------------------------------------------------
@@ -366,10 +373,21 @@ ORDER BY COUNT( DISTINCT Producto.prod_detalle) DESC
 -- Se deberán mostrar aquellos productos que hayan tenido operaciones en el año 2012 y los datos deberán ordenarse de mayor a menor por monto vendido del producto.
 
 SELECT Producto.prod_detalle AS 'Nombre de producto',
-       COUNT(DISTINCT Factura.fact_cliente) AS 'Cantidad de clientes distintos que lo compraron',
+       
+        COUNT(DISTINCT Factura.fact_cliente) AS 'Cantidad de clientes distintos que lo compraron',
+        
         AVG (Item_Factura.item_precio) AS 'Importe promedio pagado por el producto',
-        ( SELECT COUNT(DISTINCT stoc_deposito) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto AND STOCK.stoc_cantidad > 0) AS 'Cantidad de depósitos en los cuales hay stock del producto',
-        (SELECT SUM(stoc_cantidad) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto ) AS 'Stock actual del producto en todos los depósitos'
+        
+        ( SELECT COUNT(DISTINCT stoc_deposito) 
+        FROM STOCK 
+        WHERE Producto.prod_codigo = STOCK.stoc_producto AND STOCK.stoc_cantidad > 0
+        ) AS 'Cantidad de depósitos en los cuales hay stock del producto',
+        
+        ( SELECT SUM(stoc_cantidad) 
+        FROM STOCK 
+        WHERE Producto.prod_codigo = STOCK.stoc_producto 
+        ) AS 'Stock actual del producto en todos los depósitos'
+
 -- CONVIENE USAR SUBS SELECTS PARA OBTENER UN RESULTADO PUNTUAL
 -- NO CONVENIA HACER JOIN CON STOCK PORQUE ME AGRANDABA DEMASIADO EL UNIVERSO
 FROM Producto
@@ -425,10 +443,21 @@ GROUP BY Producto.prod_detalle
         -- Stock actual del producto en todos los depósitos
 
 SELECT Producto.prod_detalle  AS 'Nombre de producto',
+        
         COUNT( DISTINCT Factura.fact_cliente) AS 'Cantidad de clientes distintos que lo compraron',
+        
         AVG (Item_Factura.item_precio) AS 'Importe promedio pagado por el producto',
-        ( SELECT COUNT(DISTINCT stoc_deposito) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto AND STOCK.stoc_cantidad > 0) AS 'Cantidad de depósitos en los cuales hay stock del producto',
-        ( SELECT SUM(stoc_cantidad) FROM STOCK WHERE Producto.prod_codigo = STOCK.stoc_producto ) AS 'Stock actual del producto en todos los depósitos'
+        
+        ( SELECT COUNT(DISTINCT stoc_deposito) 
+        FROM STOCK 
+        WHERE Producto.prod_codigo = STOCK.stoc_producto AND STOCK.stoc_cantidad > 0
+        ) AS 'Cantidad de depósitos en los cuales hay stock del producto',
+        
+        ( SELECT SUM(stoc_cantidad) 
+        FROM STOCK 
+        WHERE Producto.prod_codigo = STOCK.stoc_producto 
+        ) AS 'Stock actual del producto en todos los depósitos'
+
 FROM Producto 
 JOIN Item_Factura ON item_producto = prod_codigo 
 JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
@@ -467,14 +496,19 @@ ORDER BY SUM(Composicion.comp_cantidad) DESC
 -- No se deberán visualizar NULLs en ninguna columna
 
 SELECT Factura.fact_cliente AS 'Código del cliente',
+        
         COUNT ( DISTINCT Factura.fact_numero ) AS 'Cantidad de veces que compro en el último año',
+        
         AVG ( Factura.fact_total ) AS 'Promedio por compra en el ultimo año',
+        
         ( SELECT COUNT ( DISTINCT Item_factura.item_producto ) 
         FROM Item_factura 
         JOIN Factura f ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
         where f.fact_cliente = Factura.fact_cliente and year (f.fact_fecha) = (select max(year(fact_fecha)) from Factura)
         ) 'Cantidad de productos diferentes que compro en el último año',
+        
         MAX ( Factura.fact_total ) AS 'Monto de la mayor compra que realizo en el último año'
+
 FROM Factura 
 WHERE YEAR ( Factura.fact_fecha ) = ( SELECT MAX ( YEAR ( Factura.fact_fecha ) ) FROM Factura ) -- Ultimo año
 GROUP BY Factura.fact_cliente
@@ -539,7 +573,9 @@ ORDER BY (item_cantidad) DESC
 ---------------------------------------------------
 
 SELECT clie_razon_social AS 'Nombre del Cliente', 
+
        COUNT(item_producto) AS 'Cantidad de unidades totales vendidas en el 2012 para ese cliente',
+
        ( SELECT TOP 1 item_producto
 	FROM Item_Factura
 	JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
@@ -547,6 +583,7 @@ SELECT clie_razon_social AS 'Nombre del Cliente',
 	GROUP BY item_producto
 	ORDER BY COUNT(item_producto) DESC, item_producto ASC
 	) AS 'Código de producto que mayor venta tuvo en el 2012 para ese cliente'
+
 FROM Factura
 JOIN Cliente ON fact_cliente = clie_codigo
 JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
@@ -565,16 +602,42 @@ ORDER BY clie_razon_social
 
 -- Escriba una consulta que retorne una estadística de ventas por año y mes para cada producto.
 -- La consulta debe retornar:
--- PERIODO: Año y mes de la estadística con el formato YYYYMM
--- PROD: Código de producto
--- DETALLE: Detalle del producto
--- CANTIDAD_VENDIDA = Cantidad vendida del producto en el periodo VENTAS_AÑO_ANT= Cantidad vendida del producto en el mismo mes del periodo pero del año anterior
--- CANT_FACTURAS= Cantidad de facturas en las que se vendió el producto en el periodo
+-- PERIODO = Año y mes de la estadística con el formato YYYYMM
+-- PROD = Código de producto
+-- DETALLE = Detalle del producto
+-- CANTIDAD_VENDIDA = Cantidad vendida del producto en el periodo 
+-- VENTAS_AÑO_ANT = Cantidad vendida del producto en el mismo mes del periodo pero del año anterior
+-- CANT_FACTURAS = Cantidad de facturas en las que se vendió el producto en el periodo
 -- La consulta no puede mostrar NULL en ninguna de sus columnas y debe estar ordenada por periodo y código de producto.
+
+SELECT STR ( YEAR ( Factura.fact_fecha ) ) + STR ( MONTH ( Factura.fact_fecha ) ) AS 'Periodo',
+
+        Producto.prod_codigo AS 'Código de producto',
+
+        Producto.prod_detalle AS 'Detalle del producto',
+
+        SUM ( ISNULL ( Item_Factura.item_cantidad , 0 ) ) AS 'Cantidad vendida del producto en el periodo',
+
+       ( SELECT ISNULL ( SUM ( ISNULL ( item_cantidad , 0 ) ) , 0 )
+        FROM Item_Factura
+        JOIN Factura f ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+        WHERE YEAR(f.fact_fecha) = ( YEAR ( Factura.fact_fecha ) - 1 ) -- Año anterior
+                AND MONTH ( f.fact_fecha ) =  MONTH ( Factura.fact_fecha ) -- Mismo mes
+                AND Producto.prod_codigo = item_producto -- Mismo producto
+        ) AS 'Cantidad vendida del producto en el mismo mes del periodo pero del año anterior',
+
+        COUNT(fact_tipo+fact_sucursal+fact_numero) AS 'Cantidad de facturas en las que se vendió el producto en el periodo'
+
+FROM Item_Factura
+JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+JOIN Producto ON prod_codigo = item_producto
+GROUP BY  Producto.prod_codigo, Producto.prod_detalle, Factura.fact_fecha
+ORDER BY Factura.fact_fecha, Producto.prod_codigo DESC
 
 ---------------------------------------------------18---------------------------------------------------
 
--- Escriba una consulta que retorne una estadística de ventas para todos los rubros. La consulta debe retornar:
+-- Escriba una consulta que retorne una estadística de ventas para todos los rubros. 
+-- La consulta debe retornar:
 -- DETALLE_RUBRO: Detalle del rubro
 -- VENTAS: Suma de las ventas en pesos de productos vendidos de dicho rubro
 -- PROD1: Código del producto más vendido de dicho rubro
@@ -582,6 +645,55 @@ ORDER BY clie_razon_social
 -- CLIENTE: Código del cliente que compro más productos del rubro en los últimos 30 días
 -- La consulta no puede mostrar NULL en ninguna de sus columnas y debe estar ordenada por cantidad de productos diferentes vendidos del rubro.
 
+SELECT Rubro.rubr_detalle AS 'Detalle del rubro',
+
+        SUM(item_precio * item_cantidad) AS  'Suma de las ventas en pesos de productos vendidos de dicho rubro',
+
+        ( SELECT TOP 1 item_producto
+        FROM Producto p
+        JOIN  Item_Factura ON item_producto = p.prod_codigo
+        WHERE Rubro.rubr_id = p.prod_rubro
+        GROUP BY item_producto
+	ORDER BY SUM(item_cantidad) DESC
+        ) AS 'Código del producto más vendido de dicho rubro',
+
+        ( SELECT TOP 1 item_producto
+        FROM Producto p
+        JOIN  Item_Factura ON item_producto = p.prod_codigo
+        WHERE Rubro.rubr_id = p.prod_rubro AND prod_codigo <> ( SELECT TOP 1 item_producto
+                                                                FROM Producto
+                                                                JOIN Item_Factura ON item_producto = prod_codigo
+                                                                WHERE R.rubr_id = prod_rubro
+                                                                GROUP BY item_producto
+                                                                ORDER BY SUM(item_cantidad) DESC
+						                )
+        GROUP BY item_producto
+	ORDER BY SUM(item_cantidad) DESC
+        ) AS 'Código del segundo producto más vendido de dicho rubro',
+
+'Código del cliente que compro más productos del rubro en los últimos 30 días'
+FROM Producto
+JOIN  Rubro ON rubr_id = prod_rubro
+JOIN  Item_Factura ON item_producto = prod_codigo
+GROUP BY Rubro.rubr_detalle, Rubro.rubr_id
+
+SELECT ISNULL((
+		SELECT TOP 1 fact_cliente
+		FROM Producto
+		JOIN Item_Factura ON item_producto = prod_codigo
+		JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
+		WHERE prod_rubro = R.rubr_id 
+                --AND fact_fecha BETWEEN GETDATE() AND (GETDATE()-30)
+		AND fact_fecha > DATEADD(DAY,-30,(SELECT MAX(fact_fecha) FROM Factura))--
+		--AND fact_fecha BETWEEN DATEADD(DAY,-30,(SELECT MAX(fact_fecha) FROM Factura)) AND (SELECT MAX(fact_fecha) FROM Factura)
+		GROUP BY fact_cliente
+		ORDER BY SUM(item_cantidad) DESC
+		),'-') AS [Cod CLiente]
+FROM RUBRO R
+JOIN Producto P ON P.prod_rubro = R.rubr_id
+JOIN Item_Factura IFACT ON IFACT.item_producto = P.prod_codigo
+GROUP BY R.rubr_detalle,R.rubr_id
+ORDER BY COUNT(DISTINCT IFACT.item_producto)
 ---------------------------------------------------19---------------------------------------------------
 
 -- En virtud de una recategorizacion de productos referida a la familia de los mismos se solicita que desarrolle una consulta sql que retorne para todos los productos:

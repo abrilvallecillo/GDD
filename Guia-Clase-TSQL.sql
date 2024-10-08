@@ -66,7 +66,6 @@ GO
 -- Si hay más de uno se seleccionara el de mayor antigüedad en la empresa. 
 -- Al finalizar la ejecución del objeto la tabla deberá cumplir con la regla de un único empleado sin jefe (el gerente general) y deberá retornar la cantidad de empleados que había sin jefe antes de la ejecución.
 
-
 -- 1. Que objeto voy a tener que crear?? 
     --> Modificar datos => Procedimiento / Trigger
     --> Ejecutar en un momento determinado que NO depende de un evento => Procedimiento
