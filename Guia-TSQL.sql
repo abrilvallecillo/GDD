@@ -12,6 +12,70 @@
 
 -- Realizar una función que dado un artículo y una fecha, retorne el stock que existía a esa fecha
 
+-- 1. Los productos de STOCK
+SELECT stoc_producto, SUM(stoc_cantidad) 
+FROM STOCK
+GROUP BY stoc_producto
+GO
+
+-- 2. Lo que vendi hasta la fecha
+SELECT item_producto, SUM(item_cantidad)
+FROM Item_Factura
+JOIN Factura ON item_numero = fact_numero AND item_sucursal = fact_sucursal AND Item_tipo = fact_tipo
+WHERE fact_fecha < '2011-12-16'
+GROUP BY item_producto
+GO
+
+---------------------------------------------------
+
+CREATE FUNCTION stockEn(@articulo CHAR(8), @fecha SMALLDATETIME )
+RETURNS NUMERIC(12,2)
+AS
+BEGIN 
+    DECLARE @stoc_actual NUMERIC(12,2)
+    DECLARE @vendido NUMERIC(12,2)
+
+    SELECT @stoc_actual = ISNULL ( SUM ( stoc_cantidad ), 0) -- Los que tengo
+    FROM STOCK
+    WHERE stoc_producto = @articulo -- NO SE USA GROUP BY
+
+    SELECT @vendido = ISNULL ( SUM ( item_cantidad ) , 0 ) -- Los que vendi
+    FROM Item_Factura
+    JOIN Factura ON item_numero = fact_numero AND item_sucursal = fact_sucursal AND Item_tipo = fact_tipo
+    WHERE item_producto = @articulo AND fact_fecha <= @fecha
+
+    RETURN (@stoc_actual + @vendido)
+END 
+GO
+
+---------------------------------------------------
+
+ALTER FUNCTION stockEn2(@articulo CHAR(8), @fecha SMALLDATETIME )
+RETURNS DECIMAL(12,2)
+AS
+BEGIN 
+    RETURN 
+    ( 
+        SELECT ISNULL ( SUM ( stoc_cantidad  ) , 0 ) -- Los que tengo
+        FROM STOCK
+        WHERE stoc_producto = @articulo
+    +
+    ( 
+        SELECT  ISNULL ( SUM ( item_cantidad ) , 0 )  -- Los que vendi
+        FROM Item_Factura
+        JOIN Factura ON item_numero = fact_numero AND item_sucursal = fact_sucursal AND Item_tipo = fact_tipo
+        WHERE item_producto = @articulo AND fact_fecha <= @fecha 
+    ) 
+    )
+END 
+GO
+
+---------------------------------------------------
+
+SELECT Producto.prod_codigo, dbo.stockEn(Producto.prod_codigo, '01/01/2010')
+FROM Producto
+GO
+
 ---------------------------------------------------3---------------------------------------------------
 
 -- Cree el/los objetos de base de datos necesarios para corregir la tabla empleado en caso que sea necesario. 
@@ -29,5 +93,123 @@
 
 ---------------------------------------------------4---------------------------------------------------
 
--- Cree el/los objetos de base de datos necesarios para actualizar la columna de empleado empl_comision con la sumatoria del total de lo vendido por ese empleado a lo largo del último año. 
+-- Cree el/los objetos de BDD necesarios para actualizar la columna de empleado empl_comision con la sumatoria del total de lo vendido por ese empleado a lo largo del último año. 
 -- Se deberá retornar el código del vendedor que más vendió (en monto) a lo largo del último año.
+
+CREATE PROCEDURE comisiones @vendedor INT OUTPUT
+AS
+BEGIN
+    UPDATE Empleado
+    SET empl_comision = (
+                            SELECT ISNULL ( SUM( fact_total) , 0 )
+                            FROM Factura 
+                            WHERE fact_vendedor = empl_codigo AND YEAR (fact_fecha) = ( SELECT MAX ( YEAR ( fact_fecha ) ) FROM Factura ) 
+                        )
+    SELECT TOP 1 @vendedor = empl_codigo FROM Empleado ORDER BY empl_comision DESC
+    RETURN
+END
+GO
+
+EXEC dbo.comisiones 1
+
+SELECT * FROM Empleado ORDER BY empl_comision DESC
+GO
+
+---------------------------------------------------7---------------------------------------------------
+-- NO LO TERMINE DE COPIAR
+-- Cursor
+
+CREATE PROCEDURE Ejercicio7 
+AS
+BEGIN
+
+	--DROP TABLE Ventas 
+    CREATE TABLE Ventas(
+        articulo char(8), -- Código del articulo
+        detalle char(30), -- Detalle del articulo
+        cant_movimientos int, -- Cantidad de movimientos de ventas (Item Factura)
+        precio_venta decimal(12,2), -- Precio promedio de venta
+        renglon int, -- Nro de linea de la tabla (PK)
+        ganancia NUMERIC(12,2) -- Precio de venta - Cantidad * Costo Actual
+    )
+    
+    DECLARE @articulo char(8), 
+            @detalle char(30), 
+            @cant_movimientos int, 
+            @precio_venta decimal(12,2),
+            @renglon int, 
+            @ganancia NUMERIC(12,2)
+
+	DECLARE cursor_articulos CURSOR
+	FOR (
+        SELECT prod_codigo,
+            prod_detalle,
+            COUNT ( DISTINCT ( item_numero + item_sucursal + Item_tipo ) ),
+            AVG ( item_precio ),
+            SUM ( item_cantidad * item_precio ) - ( item_cantidad * item_precio )
+			FROM Producto
+			JOIN Item_Factura ON item_producto = prod_codigo
+			GROUP BY prod_codigo, prod_detalle
+        )
+
+		OPEN cursor_articulos
+
+		FETCH cursor_articulos
+		INTO @articulo, 
+            @detalle,
+            @cant_movimientos,
+            @precio_venta,
+            @ganancia
+
+		WHILE @@FETCH_STATUS = 0
+
+		BEGIN
+			INSERT Ventas
+			VALUES ( @articulo, 
+                    @detalle,
+                    @cant_movimientos,
+                    @precio_venta,
+                    @ganancia
+            )
+			SELECT @renglon = @renglon + 1
+
+            FETCH cursor_articulos 
+            INTO @articulo, 
+                    @detalle,
+                    @cant_movimientos,
+                    @precio_venta,
+                    @ganancia
+            
+		END
+
+		CLOSE cursor_articulos
+
+		DEALLOCATE cursor_articulos
+
+	END
+GO
+
+
+EXEC Ejercicio7
+
+---------------------------------------------------7---------------------------------------------------
+
+SELECT comp_producto, 
+
+    p1.prod_detalle, 
+
+    COUNT( DISTINCT comp_componente ), 
+
+    ( SELECT SUM( comp_cantidad * p2.prod_precio ) 
+    FROM Producto p2
+    JOIN Composicion ON comp_componente = p2.prod_codigo AND comp_producto = p1.prod_codigo
+    ),
+
+    p1.prod_precio
+
+FROM Composicion
+JOIN Item_Factura ON comp_producto = item_producto
+JOIN Producto p1 ON comp_producto = p1.prod_codigo
+GROUP BY comp_producto, p1.prod_detalle, p1.prod_precio, p1.prod_codigo
+
+---------------------------------------------------9---------------------------------------------------
