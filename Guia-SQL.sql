@@ -809,7 +809,7 @@ ORDER BY rubr_detalle ASC, COUNT ( DISTINCT fact_tipo + fact_sucursal + fact_num
 
 ---------------------------------------------------
 
-SELECT  rubr_detalle 'Rubro',
+SELECT rubr_detalle 'Rubro',
 	DATEPART(QUARTER, fact_fecha) 'Trimestre',
         COUNT(DISTINCT fact_tipo + fact_sucursal + fact_numero) 'Facturas',
 	COUNT(DISTINCT prod_codigo) 'Productos Diferentes'
@@ -821,6 +821,25 @@ WHERE prod_codigo NOT IN (SELECT comp_producto FROM Composicion) -- OTRA FORMA D
 GROUP BY rubr_detalle, DATEPART(QUARTER, fact_fecha)
 HAVING COUNT(DISTINCT fact_tipo + fact_sucursal + fact_numero) > 100
 ORDER BY 1, 3 DESC
+
+---------------------------------------------------
+
+SELECT rubr_detalle AS "Detalle del rubro",
+    DATEPART ( QUARTER, fact_fecha ) AS "Número de trimestre del año", 
+    COUNT ( DISTINCT fact_tipo + fact_sucursal + fact_numero ) AS "Cantidad de facturas emitidas",
+    COUNT ( DISTINCT item_producto ) AS "Cantidad de productos diferentes vendidos"
+-- Para la fecha    
+FROM Factura JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero 
+-- Para el detalle
+JOIN Producto ON item_producto = prod_codigo JOIN Rubro ON prod_rubro = rubr_id  
+-- Para que no tenga composicion 
+LEFT JOIN Composicion ON prod_codigo = comp_producto WHERE comp_producto IS NULL
+-- Agrupo para poder usar el COUNT
+GROUP BY rubr_detalle, DATEPART(QUARTER, fact_fecha)
+-- Para mostrar aquellos rubros y trimestres para los cuales las facturas emitiadas no superen las 100
+HAVING COUNT ( DISTINCT fact_tipo + fact_sucursal + fact_numero ) > 100
+-- Oredeno 
+ORDER BY rubr_detalle ASC, COUNT ( DISTINCT fact_tipo + fact_sucursal + fact_numero ) DESC;
 
 ---------------------------------------------------23---------------------------------------------------
 
