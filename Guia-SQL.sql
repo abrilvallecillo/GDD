@@ -967,8 +967,7 @@ ORDER BY SUM ( item_cantidad ) DESC
         -- El porcentaje que representa la venta de esa familia respecto al total de venta del año.
         -- El resultado deberá ser ordenado por el total vendido por año y familia en forma descendente.
 
-SELECT  
-    YEAR(F.fact_fecha) AS 'Año',
+SELECT  YEAR(F.fact_fecha) AS 'Año',
 
     P.prod_familia AS 'Código de la familia más vendida en ese año',
 
@@ -1154,6 +1153,41 @@ ORDER BY 1 DESC
         -- Monto total de venta de ese envase en ese año
         -- Porcentaje de la venta de ese envase respecto al total vendido de ese año
         -- Los datos deberan ser ordenados por año y dentro del año por el envase con más facturación de mayor a menor
+
+SELECT YEAR(F.fact_fecha) AS 'Año',
+
+    E.enva_codigo AS 'Codigo de envase', 
+
+    E.enva_detalle AS 'Detalle del envase',
+
+    COUNT ( DISTINCT P.prod_codigo ) AS 'Cantidad de productos que tienen ese envase',
+
+    SUM ( I.item_cantidad ) AS 'Cantidad de productos facturados de ese envase',
+
+    (
+        SELECT TOP 1 prod_codigo
+        FROM Producto
+        JOIN Item_Factura ON item_producto = prod_codigo
+        JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
+        WHERE prod_envase = E.enva_codigo AND YEAR ( fact_fecha ) = YEAR ( F.fact_fecha )
+        GROUP BY prod_codigo
+        ORDER BY SUM ( item_cantidad ) DESC
+    ) AS 'Producto más vendido de ese envase',
+
+    SUM ( I.item_cantidad * I.item_precio ) AS 'Monto total de venta de ese envase en ese año',
+
+     SUM ( I.item_cantidad * I.item_precio ) * 100  / (  SELECT SUM ( item_cantidad * item_precio )
+                                                        FROM Item_Factura
+                                                        JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
+                                                        WHERE YEAR ( fact_fecha ) = YEAR ( F.fact_fecha )
+    ) AS 'Porcentaje de la venta de ese envase respecto al total vendido de ese año'
+
+FROM Producto P
+JOIN Envases E ON P.prod_envase = E.enva_codigo
+JOIN Item_Factura I ON I.item_producto = P.prod_codigo
+JOIN Factura F ON F.fact_numero = I.item_numero AND F.fact_sucursal = I.item_sucursal AND F.fact_tipo = I.item_tipo 
+GROUP BY YEAR(F.fact_fecha), E.enva_codigo, E.enva_detalle
+ORDER BY YEAR(F.fact_fecha), enva_codigo
 
 ---------------------------------------------------28---------------------------------------------------
 
