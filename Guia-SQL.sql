@@ -1202,6 +1202,45 @@ ORDER BY YEAR(F.fact_fecha), enva_codigo
         -- Monto total vendido por ese vendedor en ese año
         -- Los datos deberan ser ordenados por año y dentro del año por el vendedor que haya vendido mas productos diferentes de mayor a menor.
 
+SELECT YEAR(F.fact_fecha) AS 'Año',
+    
+    F.fact_vendedor AS 'Codigo de Vendedor',
+    
+    E.empl_nombre AS 'Detalle del Vendedor',
+    
+    COUNT(DISTINCT F.fact_tipo + F.fact_sucursal + F.fact_numero) AS 'Cantidad de facturas que realizó en ese año',
+    
+    COUNT(DISTINCT F.fact_cliente) AS 'Cantidad de clientes a los cuales les vendió en ese año',
+    
+        (
+		SELECT COUNT(DISTINCT prod_codigo)
+		FROM Producto
+		JOIN Composicion ON comp_producto = prod_codigo
+		JOIN Item_Factura ON item_producto = prod_codigo
+		JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
+		WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) 
+                AND fact_vendedor = F.fact_vendedor
+	) AS 'Cantidad de productos facturados con composición en ese año',
+    
+        ( 
+                SELECT COUNT ( DISTINCT prod_codigo )
+		FROM Producto
+		JOIN Item_Factura
+		ON item_producto = prod_codigo
+		JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
+		WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) 
+                AND fact_vendedor = F.fact_vendedor 
+                AND prod_codigo NOT IN (SELECT comp_producto FROM Composicion)
+
+	) AS 'Cantidad de productos facturados sin composición en ese año',
+    
+    SUM( F.fact_total ) AS 'Monto total vendido por ese vendedor en ese año'
+
+FROM Factura F
+JOIN Empleado E ON F.fact_vendedor = E.empl_codigo
+GROUP BY YEAR(F.fact_fecha), F.fact_vendedor, E.empl_nombre
+ORDER BY YEAR(F.fact_fecha) DESC
+
 ---------------------------------------------------29---------------------------------------------------
 
 -- Se solicita que realice una estadística de venta por producto para el año 2011, solo para los productos que pertenezcan a las familias que tengan más de 20 productos asignados a ellas, la cual deberá devolver las siguientes columnas:
