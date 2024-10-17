@@ -1252,6 +1252,19 @@ ORDER BY YEAR(F.fact_fecha) DESC
 -- Solo se deberá mostrar un producto por fila en función a los considerandos establecidos antes. 
 -- El resultado deberá ser ordenado por el la cantidad vendida de mayor a menor.
 
+SELECT prod_codigo AS 'Código de producto',
+        prod_detalle AS 'Descripción del producto',
+        SUM ( I.item_cantidad ) AS 'Cantidad vendida',
+        COUNT(DISTINCT F.fact_tipo + F.fact_sucursal + F.fact_numero) AS 'Cantidad de facturas en la que esta ese producto',
+        SUM ( I.item_cantidad * I.item_precio ) AS 'Monto total facturado de ese producto'
+FROM Producto P
+JOIN Item_Factura I ON I.item_producto = P.prod_codigo
+JOIN Factura F ON F.fact_numero = I.item_numero AND F.fact_sucursal = I.item_sucursal AND F.fact_tipo = I.item_tipo 
+WHERE YEAR ( fact_fecha ) = 2011
+AND P.prod_familia IN ( SELECT prod_familia FROM Producto GROUP BY prod_familia HAVING COUNT(prod_codigo) > 20 )
+GROUP BY P.prod_codigo, P.prod_detalle
+ORDER BY SUM( I.item_cantidad ) DESC; 
+
 ---------------------------------------------------30---------------------------------------------------
 
 -- Se desea obtener una estadistica de ventas del año 2012, para los empleados que sean jefes, o sea, que tengan empleados a su cargo, para ello se requiere que realice la consulta que retorne las siguientes columnas:
@@ -1262,6 +1275,27 @@ ORDER BY YEAR(F.fact_fecha) DESC
         -- Nombre del empleado con mejor ventas de ese jefe
 -- Debido a la perfomance requerida, solo se permite el uso de una subconsulta si fuese necesario.
 -- Los datos deberan ser ordenados por de mayor a menor por el Total vendido y solo se deben mostrarse los jefes cuyos subordinados hayan realizado más de 10 facturas.
+
+SELECT J.empl_nombre AS 'Nombre del Jefe',
+        COUNT ( E.empl_codigo ) AS 'Cantidad de empleados a cargo',
+        SUM( F.fact_total ) AS'Monto total vendido de los empleados a cargo',
+        COUNT( F.fact_vendedor ) AS 'Cantidad de facturas realizadas por los empleados a cargo',
+       (
+                SELECT TOP 1 empl_codigo
+		FROM Empleado
+		JOIN Factura ON fact_vendedor = empl_codigo
+		WHERE empl_jefe = J.empl_codigo AND YEAR(fact_fecha) = YEAR(F.fact_fecha)
+		GROUP BY empl_codigo
+		ORDER BY SUM(fact_total) DESC
+		) AS 'Nombre del empleado con mejor ventas de ese jefe'
+FROM Empleado E
+JOIN Empleado J ON E.empl_jefe = J.empl_codigo
+JOIN Factura F ON F.fact_vendedor = E.empl_codigo
+WHERE YEAR(F.fact_fecha) = 2012
+GROUP BY J.empl_nombre, J.empl_apellido, J.empl_codigo, YEAR(F.fact_fecha)
+HAVING COUNT(F.fact_numero+F.fact_tipo+F.fact_sucursal) > 10
+ORDER BY 4 DESC
+
 
 ---------------------------------------------------31---------------------------------------------------
 
