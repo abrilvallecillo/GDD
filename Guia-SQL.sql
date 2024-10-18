@@ -108,7 +108,7 @@ GROUP BY Producto.prod_codigo, Producto.prod_detalle
 
 SELECT Producto.prod_codigo AS 'Codigo de los Productos', 
         Producto.prod_detalle AS 'Nombre de los Productos',
-       COUNT( distinct Composicion.comp_componente) AS 'Cantidad de Productos que lo componene'
+       COUNT( DISTINCT Composicion.comp_componente) AS 'Cantidad de Productos que lo componene'
 FROM Producto
 LEFT JOIN Composicion ON Producto.prod_codigo = Composicion.comp_producto
 JOIN STOCK ON Producto.prod_codigo = STOCK.stoc_producto
@@ -1208,9 +1208,9 @@ SELECT YEAR(F.fact_fecha) AS 'Año',
     
     E.empl_nombre AS 'Detalle del Vendedor',
     
-    COUNT(DISTINCT F.fact_tipo + F.fact_sucursal + F.fact_numero) AS 'Cantidad de facturas que realizó en ese año',
+    COUNT ( F.fact_tipo + F.fact_sucursal + F.fact_numero) AS 'Cantidad de facturas que realizó en ese año',
     
-    COUNT(DISTINCT F.fact_cliente) AS 'Cantidad de clientes a los cuales les vendió en ese año',
+    COUNT ( DISTINCT F.fact_cliente) AS 'Cantidad de clientes a los cuales les vendió en ese año',
     
         (
 		SELECT COUNT(DISTINCT prod_codigo)
@@ -1231,7 +1231,6 @@ SELECT YEAR(F.fact_fecha) AS 'Año',
 		WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) 
                 AND fact_vendedor = F.fact_vendedor 
                 AND prod_codigo NOT IN (SELECT comp_producto FROM Composicion)
-
 	) AS 'Cantidad de productos facturados sin composición en ese año',
     
     SUM( F.fact_total ) AS 'Monto total vendido por ese vendedor en ese año'
@@ -1248,14 +1247,14 @@ ORDER BY YEAR(F.fact_fecha) DESC
         -- Descripción del producto
         -- Cantidad vendida
         -- Cantidad de facturas en la que esta ese producto
-        --  Monto total facturado de ese producto
+        -- Monto total facturado de ese producto
 -- Solo se deberá mostrar un producto por fila en función a los considerandos establecidos antes. 
 -- El resultado deberá ser ordenado por el la cantidad vendida de mayor a menor.
 
 SELECT prod_codigo AS 'Código de producto',
         prod_detalle AS 'Descripción del producto',
         SUM ( I.item_cantidad ) AS 'Cantidad vendida',
-        COUNT(DISTINCT F.fact_tipo + F.fact_sucursal + F.fact_numero) AS 'Cantidad de facturas en la que esta ese producto',
+        COUNT( F.fact_tipo + F.fact_sucursal + F.fact_numero) AS 'Cantidad de facturas en la que esta ese producto',
         SUM ( I.item_cantidad * I.item_precio ) AS 'Monto total facturado de ese producto'
 FROM Producto P
 JOIN Item_Factura I ON I.item_producto = P.prod_codigo
@@ -1296,7 +1295,6 @@ GROUP BY J.empl_nombre, J.empl_apellido, J.empl_codigo, YEAR(F.fact_fecha)
 HAVING COUNT(F.fact_numero+F.fact_tipo+F.fact_sucursal) > 10
 ORDER BY 4 DESC
 
-
 ---------------------------------------------------31---------------------------------------------------
 
 -- Escriba una consulta sql que retorne una estadística por Año y Vendedor que retorne las siguientes columnas:
@@ -1310,6 +1308,39 @@ ORDER BY 4 DESC
         -- Monto total vendido por ese vendedor en ese año
 -- Los datos deberan ser ordenados por año y dentro del año por el vendedor que haya vendido mas productos diferentes de mayor a menor.
 
+SELECT YEAR ( F.fact_fecha ) AS 'Año',
+    
+    F.fact_vendedor AS 'Codigo de Vendedor',
+    
+    E.empl_nombre AS 'Detalle del Vendedor',
+    
+    COUNT ( F.fact_tipo + F.fact_sucursal + F.fact_numero) AS 'Cantidad de facturas que realizó en ese año',
+    
+    COUNT ( DISTINCT F.fact_cliente) AS 'Cantidad de clientes a los cuales les vendió en ese año',
+    
+        (
+		SELECT COUNT(DISTINCT item_producto)
+		FROM Item_Factura
+		JOIN Composicion ON comp_producto = item_producto
+		JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
+		WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) 
+                AND fact_vendedor = F.fact_vendedor
+	) AS 'Cantidad de productos facturados con composición en ese año',
+    
+        ( 
+                SELECT COUNT ( DISTINCT item_producto )
+		FROM Item_Factura
+		JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
+		WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) AND fact_vendedor = F.fact_vendedor AND item_producto NOT IN (SELECT comp_producto FROM Composicion)
+	) AS 'Cantidad de productos facturados sin composición en ese año',
+    
+    SUM( F.fact_total ) AS 'Monto total vendido por ese vendedor en ese año'
+
+FROM Factura F
+JOIN Empleado E ON F.fact_vendedor = E.empl_codigo
+GROUP BY YEAR(F.fact_fecha), F.fact_vendedor, E.empl_nombre
+ORDER BY YEAR(F.fact_fecha) DESC
+
 ---------------------------------------------------32---------------------------------------------------
 
 -- Se desea conocer las familias que sus productos se facturaron juntos en las mismas facturas para ello se solicita que escriba una consulta sql que retorne los pares de familias que tienen productos que se facturaron juntos. 
@@ -1322,10 +1353,29 @@ ORDER BY 4 DESC
         -- Total vendido
 -- Los datos deberan ser ordenados por Total vendido y solo se deben mostrar las familias que se vendieron juntas más de 10 veces.
 
+SELECT 
+    FAM1.fami_id AS 'Código de familia 1',
+    FAM1.fami_detalle AS 'Detalle de familia 1',
+    FAM2.fami_id AS 'Código de familia 2',
+    FAM2.fami_detalle AS 'Detalle de familia 2',
+    COUNT(DISTINCT I1.item_tipo + I1.item_sucursal + I1.item_numero) AS 'Cantidad de facturas',
+    SUM(I1.item_cantidad * I1.item_precio) + SUM(I2.item_cantidad * I2.item_precio) AS 'Total vendido entre items de ambas familias'
+FROM Familia FAM1
+JOIN Producto P1 ON P1.prod_familia = FAM1.fami_id
+JOIN Item_Factura I1 ON I1.item_producto = P1.prod_codigo
+JOIN Familia FAM2 ON FAM2.fami_id > FAM1.fami_id -- Aseguramos que sea un par único, evitando duplicados
+JOIN Producto P2 ON P2.prod_familia = FAM2.fami_id
+JOIN Item_Factura I2 ON I2.item_producto = P2.prod_codigo 
+        AND I1.item_numero = I2.item_numero AND I1.item_tipo = I2.item_tipo  AND I1.item_sucursal = I2.item_sucursal -- Solo productos en la misma factura
+GROUP BY FAM1.fami_id, FAM1.fami_detalle, FAM2.fami_id, FAM2.fami_detalle
+HAVING COUNT(DISTINCT I1.item_tipo + I1.item_sucursal + I1.item_numero) > 10 -- Más de 10 facturas
+ORDER BY 'Total vendido entre items de ambas familias' DESC;
+
 ---------------------------------------------------33---------------------------------------------------
 
 -- Se requiere obtener una estadística de venta de productos que sean componentes. 
--- Para ello se solicita que realiza la siguiente consulta que retorne la venta de los componentes del producto más vendido del año 2012. Se deberá mostrar:
+-- Para ello se solicita que realiza la siguiente consulta que retorne la venta de los componentes del producto más vendido del año 2012. 
+-- Se deberá mostrar:
         -- Código de producto
         -- Nombre del producto
         -- Cantidad de unidades vendidas
@@ -1334,16 +1384,48 @@ ORDER BY 4 DESC
         -- Total facturado para ese producto
 -- El resultado deberá ser ordenado por el total vendido por producto para el año 2012.
 
+SELECT 
+    prod_codigo AS 'Código de producto',
+    prod_detalle AS 'Nombre del producto',
+    SUM(item_cantidad) AS 'Cantidad de unidades vendidas',
+    COUNT(DISTINCT CONCAT(item_tipo, item_sucursal, item_numero)) AS 'Cantidad de facturas en las cuales se facturó',
+    AVG(item_precio) AS 'Precio promedio facturado de ese producto',
+    SUM(item_cantidad * item_precio) AS 'Total facturado para ese producto'
+FROM Item_Factura
+JOIN Producto ON item_producto = prod_codigo
+WHERE CONCAT(item_tipo, item_sucursal, item_numero) IN ( SELECT CONCAT(fact_tipo, fact_sucursal, fact_numero) FROM Factura WHERE YEAR(fact_fecha) = 2012 ) 
+AND item_producto IN ( SELECT TOP 1 item_producto 
+                        FROM Item_Factura
+                        JOIN Factura ON CONCAT(item_tipo, item_sucursal, item_numero) = CONCAT(fact_tipo, fact_sucursal, fact_numero)
+                        WHERE YEAR(fact_fecha) = 2012 AND item_producto IN ( SELECT comp_componente FROM Composicion )-- Productos que son componentes
+                        GROUP BY item_producto
+                        ORDER BY SUM(item_cantidad) DESC
+                ) -- Solo el producto más vendido
+GROUP BY prod_codigo, prod_detalle
+ORDER BY SUM(item_cantidad * item_precio) DESC
+
+---------------------------------------------------CHEQUEO
+
+SELECT COUNT(DISTINCT CONCAT(item_tipo, item_sucursal, item_numero)) AS 'Cantidad de facturas',
+    SUM(item_cantidad) AS 'Total unidades vendidas'
+FROM Item_Factura
+JOIN Producto ON item_producto = prod_codigo
+JOIN Factura ON CONCAT(item_tipo, item_sucursal, item_numero) = CONCAT(fact_tipo, fact_sucursal, fact_numero)
+WHERE prod_detalle = 'PILAS E 91 u.' AND YEAR(fact_fecha) = 2012;
+
 ---------------------------------------------------34---------------------------------------------------
 
--- Escriba una consulta sql que retorne para todos los rubros la cantidad de facturas mal facturadas por cada mes del año 2011 Se considera que una factura es incorrecta cuando en la misma factura se factutan productos de dos rubros diferentes. Si no hay facturas mal hechas se debe retornar 0. Las columnas que se deben mostrar son:
+-- Escriba una consulta sql que retorne para todos los rubros la cantidad de facturas mal facturadas por cada mes del año 2011 
+-- Se considera que una factura es incorrecta cuando en la misma factura se factutan productos de dos rubros diferentes. 
+-- Si no hay facturas mal hechas se debe retornar 0. 
+-- Las columnas que se deben mostrar son:
         -- Codigo de Rubro
         -- Mes
         -- Cantidad de facturas mal realizadas.
 
 ---------------------------------------------------35---------------------------------------------------
 
--- Se requiere realizar una estadística de ventas por año y producto, para ello se solicita que escriba una consulta sql que retorne las siguientes columnas:]
+-- Se requiere realizar una estadística de ventas por año y producto, para ello se solicita que escriba una consulta sql que retorne las siguientes columnas
         -- Año
         -- Codigo de producto
         -- Detalle del producto
