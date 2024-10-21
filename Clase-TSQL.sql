@@ -206,6 +206,7 @@ CLOSE [ GLOBAL ] cursor_name -- No deja disponible esa variable
 DEALLOCATE [ GLOBAL ] cursor_name -- Borra el contenido -- Libera memoria
 
 ---------------------------------------------------EJEMPLO---------------------------------------------------
+
 Este ejemplo utiliza @@FETCH_STATUS para controlar las actividades del cursor en un bucle WHILE.
 
 DECLARE Employee_Cursor CURSOR 
@@ -223,4 +224,42 @@ CLOSE Employee_Cursor
 
 DEALLOCATE Employee_Cursor
 
+---------------------------------------------------RAISERROR---------------------------------------------------
+
+RAISERROR (msg_id | msg_str, severity) -- Muestra el error y aborta lo que estaba ejecutando
+
+---------------------------------------------------TRY CATCH---------------------------------------------------
+
+BEGIN TRY
+    Instrucciones Transact -- Lo que quiere ejecutar
+END TRY
+
+BEGIN CATCH
+    Instrucciones Transact -- Lo que va a ejecutar si TRY tira un error
+END CATCH
+
+---------------------------------------------------BEGIN TRANSACTION---------------------------------------------------
+
+BEGIN TRAN[SACTION] [transaction_name |@tran_name_variable] -- Puede meterse en el medio de la transaccion, generando una nueva atomicidad
+
+---------------------------------------------------COMMIT TRANSACTION---------------------------------------------------
+
+COMMIT [TRAN [SACTION] [transaction_name | @tran_name_variable]] -- PARA CONFIRMAR LA TRANSACCION
+
+-- Si @@TRANCOUNT es 1, COMMIT TRANSACTION hace que todas las modificaciones efectuadas sobre los datos desde el inicio de la transacción sean parte permanente de la base de datos, libera los recursos mantenidos por la conexión y reduce @@TRANCOUNT a O. 
+-- Si @@TRANCOUNT es mayor que 1, COMMIT TRANSACTION sólo reduce @@TRANCOUNT en 1
+
+---------------------------------------------------ROLLBACK TRANSACTION---------------------------------------------------
+
+ROLLBACK [TRANISACTION] [transaction_name |@tran_name_variable] -- Vuelve para atras la ultima transaccion si tira error
+
+---------------------------------------------------SET TRANSACTION ISOLATION LEVEL---------------------------------------------------
+
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED | READ UNCOMMITTED | REPEATABLE READ | SERIALIZABLE
+
+---------------------------------------------------ROLLBACK TRANSACTION---------------------------------------------------
+
+---------------------------------------------------ROLLBACK TRANSACTION---------------------------------------------------
+
 */
+
