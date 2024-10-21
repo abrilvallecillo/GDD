@@ -129,14 +129,23 @@ GO
 CREATE PROCEDURE empleados @vendedor INT OUTPUT
 AS
 BEGIN
+    -- Actualizamos la columna 'empl_comision' de la tabla Empleado. 
+    -- Esta columna se actualiza con la suma de los montos totales de las facturas (fact_total) emitidas por el vendedor (empl_codigo).
+    -- Se asegura que se sumen solo las facturas correspondientes al último año de facturación.
     UPDATE Empleado
-    SET empl_comision = (
-                            SELECT ISNULL ( SUM( fact_total) , 0 )
+    SET empl_comision = ( SELECT ISNULL(SUM(fact_total), 0)  -- Suma el total de las facturas y si no hay facturas, devuelve 0.
                             FROM Factura 
-                            WHERE fact_vendedor = empl_codigo AND YEAR (fact_fecha) = ( SELECT MAX ( YEAR ( fact_fecha ) ) FROM Factura ) 
+                            WHERE fact_vendedor = empl_codigo  -- Filtra las facturas que fueron emitidas por el vendedor correspondiente.
+                            AND YEAR(fact_fecha) = ( SELECT MAX(YEAR(fact_fecha))  -- Considera solo las facturas del año más reciente.
+                                                        FROM Factura
+                                                    ) 
                         )
-    SELECT TOP 1 @vendedor = empl_codigo FROM Empleado ORDER BY empl_comision DESC
-    RETURN
+    -- Después de actualizar la comisión de los empleados, se selecciona el vendedor con la mayor comisión.
+    -- Se usa 'TOP 1' para obtener el código del vendedor con la mayor comisión.
+    SELECT TOP 1 @vendedor = empl_codigo 
+    FROM Empleado 
+    ORDER BY empl_comision DESC  -- Ordena los empleados por comisión de mayor a menor y selecciona el primero (mayor comisión).
+RETURN
 END
 GO
 
@@ -152,19 +161,32 @@ GO
 CREATE PROCEDURE comisiones @vendedor INT OUTPUT
 AS
 BEGIN
+    -- Actualizamos la columna 'empl_comision' en la tabla Empleado.
+    -- Esta columna se establece con la suma del total de lo vendido por cada empleado durante el último año.
     UPDATE Empleado
     SET empl_comision = (
-                            SELECT ISNULL ( SUM( fact_total) , 0 )
+                            -- Subconsulta que obtiene la suma del total de ventas (fact_total) realizadas por cada empleado.
+                            -- Se utiliza ISNULL para asegurar que si no hay ventas, el valor devuelto sea 0.
+                            SELECT ISNULL(SUM(fact_total), 0) 
                             FROM Factura 
-                            WHERE fact_vendedor = empl_codigo AND YEAR (fact_fecha) = ( SELECT MAX ( YEAR ( fact_fecha ) ) FROM Factura ) 
+                            WHERE fact_vendedor = empl_codigo  -- Se filtran las ventas correspondientes al vendedor específico (empl_codigo).
+                            AND YEAR(fact_fecha) = ( SELECT MAX(YEAR(fact_fecha))  -- Se obtiene el último año en el que se registraron facturas.
+                                                        FROM Factura
+                                                     )
                         )
-    SELECT TOP 1 @vendedor = empl_codigo FROM Empleado ORDER BY empl_comision DESC
+    
+    -- Luego de actualizar la columna 'empl_comision' con las ventas del último año,
+    -- se selecciona el código del empleado que más vendió, basándonos en la comisión calculada.
+    SELECT TOP 1 @vendedor = empl_codigo 
+    FROM Empleado 
+    ORDER BY empl_comision DESC  -- Se ordenan los empleados por comisión en orden descendente (de mayor a menor).
+    
+    -- El procedimiento retorna el código del empleado con la mayor comisión (ventas) en la variable de salida @vendedor.
     RETURN
 END
 GO
 
 EXEC dbo.comisiones 1
-
 SELECT * FROM Empleado ORDER BY empl_comision DESC
 GO
 
