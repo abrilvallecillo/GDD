@@ -258,79 +258,125 @@ La tabla se encuentra creada y vacía.
 CREATE PROCEDURE Ventas 
 AS
 BEGIN 
-    drop table ventas
 
-    Create table ventas( 
-        articulo char(8),
-        detalle char(30),
-        cant_movimientos int,
-        precio_venta numeric(12,2),
-        renglon int,
-        ganancia numeric(12,2)
+    -- Eliminar la tabla Ventas si existe
+    DROP TABLE IF EXISTS Ventas
+    
+    -- Crear la tabla Ventas
+    CREATE TABLE Ventas (
+        articulo char(8),           -- Código del artículo
+        detalle char(30),           -- Detalle del artículo
+        cant_movimientos int,       -- Cantidad de movimientos de ventas (Item Factura)
+        precio_venta decimal(12,2), -- Precio promedio de venta
+        renglon int,                -- Número de línea de la tabla (PK)
+        ganancia NUMERIC(12,2)      -- Precio de venta - Cantidad * Costo Actual
     )
 
-    declare @articulo char(8),
-    @detalle char(30),
-    @cant_movimientos int,
-    @precio_venta numeric(12,2),
-    @renglon int,
-    @ganancia numeric(12,2)
-    
-    declare cventas cursor for ( SELECT prod_codigo, 
-                                        prod_Detalle,
-                                        count ( distinct item_tipo+item_sucursal+item_numero ), 
-                                        avg ( item_precio ), 
-                                        sum ( ( item_precio * item_cantidad ) - ( item_cantidad * prod_precio ) ) 
-                                        from item_factura 
-                                        join producto on prod_codigo = item_producto
-                                        group by prod_codigo, prod_Detalle
-                                )
+    -- Declaración de variables
+    DECLARE @articulo char(8), 
+            @detalle char(30), 
+            @cant_movimientos int, 
+            @precio_venta decimal(12,2),
+            @renglon int, 
+            @ganancia NUMERIC(12,2)
 
-    open cventas
+    -- Definición del cursor para iterar sobre los productos y sus ventas
+    DECLARE cventas CURSOR FOR 
+    SELECT prod_codigo, 
+           prod_detalle, 
+           COUNT(DISTINCT (item_numero + item_sucursal + item_tipo)), 
+           AVG(item_precio), 
+           SUM((item_precio * item_cantidad) - (item_cantidad * prod_precio)) 
+    FROM Producto
+    JOIN Item_Factura ON item_producto = prod_codigo
+    GROUP BY prod_codigo, prod_detalle
 
-    fetch cventas into @articulo, @detalle, @cant_movimientos, @precio_venta, @ganancia
+    -- Abrir el cursor
+    OPEN cventas
 
-    select @renglon = 1
+    -- Inicializar el contador de renglones
+    SELECT @renglon = 1
 
-    while @@FETCH_STATUS = 0
+    -- Obtener la primera fila del cursor
+    FETCH NEXT FROM cventas 
+    INTO @articulo, @detalle, @cant_movimientos, @precio_venta, @ganancia
 
+    -- Bucle para recorrer el cursor
+    WHILE @@FETCH_STATUS = 0
     BEGIN
-        insert ventas values (@articulo, @detalle, @cant_movimientos, @precio_venta, @renglon, @ganancia)
-        
-        select @renglon = @renglon + 1
-        
-        fetch cventas into @articulo, @detalle, @cant_movimientos, @precio_venta, @ganancia
+        -- Insertar los valores en la tabla Ventas
+        INSERT INTO Ventas 
+        VALUES ( @articulo, 
+                @detalle, 
+                @cant_movimientos, 
+                @precio_venta, 
+                @renglon, 
+                @ganancia
+            )
+
+        -- Incrementar el número de renglón
+        SELECT @renglon = @renglon + 1;
+
+        -- Obtener la siguiente fila del cursor
+        FETCH NEXT FROM cventas 
+        INTO @articulo, 
+             @detalle, 
+             @cant_movimientos, 
+             @precio_venta, 
+             @ganancia
     END
-    
-    close cventas
-    
-    deallocate cventas
+
+    -- Cerrar y desasignar el cursor
+    CLOSE cventas
+    DEALLOCATE cventas
 
 RETURN
 END
 GO
 
-exec dbo.Ventas
-go
-
 ---------------------------------------------------8---------------------------------------------------
 
 /*
 Realizar un procedimiento que complete la tabla Diferencias de precios, para los productos facturados que tengan composición y en los cuales el precio de facturación sea diferente al precio del cálculo de los precios unitarios por cantidad de sus componentes, se aclara que un producto que compone a otro, también puede estar compuesto por otros y así sucesivamente, la tabla se debe crear y está formada por las siguientes columnas:
-Código --> Código del articulo
-Detalle --> Detalle del articulo
-Cantidad --> Cantidad de productos que conforman el combo
-Precio_generado --> Precio que se compone a través de sus componentes
-Precio_facturado --> Precio del producto
+    Código --> Código del articulo
+    Detalle --> Detalle del articulo
+    Cantidad --> Cantidad de productos que conforman el combo
+    Precio_generado --> Precio que se compone a través de sus componentes
+    Precio_facturado --> Precio del producto
 */
-select comp_producto, p1.prod_detalle, count(*),sum(comp_cantidad*p2.prod_precio), p1.prod_precio
-from composicion join producto p1 on p1.prod_codigo = comp_producto
+
+select comp_producto, 
+    p1.prod_detalle, 
+    count(*),
+    sum(comp_cantidad * p2.prod_precio), 
+    p1.prod_precio
+from composicion 
+join producto p1 on p1.prod_codigo = comp_producto
 join producto p2 on p2.prod_codigo = comp_componente
 where p1.prod_codigo in (select distinct item_producto from item_factura)
 group by comp_producto, p1.prod_codigo, p1.prod_detalle, p1.prod_precio
 GO
 
----------------------------------------------------8---------------------------------------------------
+SELECT comp_producto, 
+
+    p1.prod_detalle, 
+
+    COUNT( DISTINCT comp_componente ), 
+
+    ( SELECT SUM( comp_cantidad * p2.prod_precio ) 
+    FROM Producto p2
+    JOIN Composicion ON comp_componente = p2.prod_codigo AND comp_producto = p1.prod_codigo
+    ),
+
+    p1.prod_precio
+
+FROM Composicion
+JOIN Item_Factura ON comp_producto = item_producto
+JOIN Producto p1 ON comp_producto = p1.prod_codigo
+GROUP BY comp_producto, p1.prod_detalle, p1.prod_precio, p1.prod_codigo
+GO
+
+---------------------------------------------------9---------------------------------------------------
 
 -- Crear el/los objetos de base de datos que ante alguna modificación de un ítem de factura de un artículo con composición realice el movimiento de sus correspondientes componentes.
 
@@ -377,13 +423,229 @@ BEGIN
     
     DEALLOCATE cdelete 
 END
+GO
 
-select * from composicion
+---------------------------------------------------10---------------------------------------------------
 
-select top 1 * from Factura
+--  Crear el/los objetos de base de datos que ante el intento de borrar un artículo verifique que no exista stock y si es así lo borre en caso contrario que emita un mensaje de error.
 
-select * from item_factura where item_numero = '00068710'
+---------------------------------------------------11---------------------------------------------------
 
-insert item_Factura values ('A', '0003','00068710','00001104',10,12)
+-- Cree el/los objetos de BD necesarios para que dado un código de empleado se retorne la cantidad de empleados que este tiene a su cargo (directa o indirectamente). 
+-- Solo contar aquellos empleados (directos o indirectos) que tengan un código mayor que su jefe directo.
 
-select * from stock where stoc_producto = '00001123'
+-- DROP FUNCTION IF EXISTS ej11; 
+
+CREATE FUNCTION ej11 ( @empleado numeric(6) )
+RETURNS INTEGER
+AS
+BEGIN
+    DECLARE @cantidad INTEGER;
+    SELECT @cantidad = 0;
+
+    -- Si sos empleado no tenes a nadie a cargo
+    IF (SELECT COUNT(*) FROM empleado WHERE empl_jefe = @empleado) = 0
+        RETURN @cantidad; -- 0
+
+    -- Contar empleados directos
+    SELECT @cantidad = COUNT(*) FROM empleado WHERE empl_jefe = @empleado;
+    
+    -- Contar empleados indirectos
+    DECLARE @jefe numeric(6);
+    DECLARE cl CURSOR FOR SELECT empl_codigo FROM empleado WHERE empl_jefe = @empleado;
+    
+    OPEN cl;
+    FETCH NEXT FROM cl INTO @jefe;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SELECT @cantidad = @cantidad + dbo.ej11(@jefe);
+        FETCH NEXT FROM cl INTO @jefe;
+    END;
+    CLOSE cl;
+    DEALLOCATE cl;
+    
+    RETURN @cantidad;
+END
+GO
+
+SELECT dbo.ej11(1) AS TotalEmpleadosACargo 
+GO
+---------------------------------------------------12---------------------------------------------------
+
+-- Cree el/los objetos de base de datos necesarios para que nunca un producto pueda ser compuesto por sí mismo. 
+-- Se sabe que en la actualidad dicha regla se cumple y que la base de datos es accedida por n aplicaciones de diferentes tipos y tecnologías. 
+-- No se conoce la cantidad de niveles de composición existentes.
+
+-- Hay que controlar de aca en adelante --> Trigger
+-- Sobre que hay que controlar --> Tabla composicion 
+-- Que entren todos los porductos, o ninguno --> Afeter
+
+CREATE TRIGGER productoCompuestoPorSiMismo ON composicion AFTER INSERT, UPDATE
+AS
+BEGIN
+    IF ( SELECT sum ( dbo.COMPONE( comp_producto, comp_componente ) ) FROM inserted ) > 0
+    BEGIN
+        PRINT 'EL PRODUCTO ESTA COMPUESTO POR SI MISMO'
+        ROLLBACK
+    END
+END
+GO
+
+CREATE FUNCTION COMPONE (@PRODUCTO CHAR(8), @COMPONENTE CHAR(8) )
+RETURNS INT
+AS
+BEGIN
+    DECLARE @COMP CHAR(8)
+
+    IF ( @PRODUCTO = @COMPONENTE )
+        RETURN 1
+
+    DECLARE C1 CURSOR FOR SELECT comp_componente FROM Composicion WHERE comp_producto = @COMPONENTE
+    OPEN C1
+    FETCH NEXT FROM C1 INTO @COMP
+    WHILE @@FETCH_STATUS = 0
+    BEGIN 
+        IF dbo.COMPONE ( @PRODUCTO, @COMP ) = 1
+        BEGIN
+            CLOSE C1
+            DEALLOCATE C1
+            RETURN 1
+        END
+        FETCH NEXT FROM C1 INTO @COMP
+    END
+    CLOSE C1
+    DEALLOCATE C1
+    RETURN 0
+END
+GO
+
+SELECT DBO. COMPONE (PROD_CODIGO, '00001104') FROM Producto -- Aparecen con 1 el producto y los dos componentes
+select * from Composicion ORDER By comp_producto
+GO
+
+---------------------------------------------------13---------------------------------------------------
+
+-- Cree el/los objetos de BD necesarios para implantar la siguiente regla:
+-- “Ningún jefe puede tener un salario mayor al 20% de las suma de los salarios de sus empleados totales (directos + indirectos)”. 
+-- Se sabe que en la actualidad dicha regla se cumple y que la BD es accedida por n aplicaciones de diferentes tipos y tecnologías
+
+
+CREATE TRIGGER ningúnJefe ON Empleado AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    -- Si el sueldo del jefe es mayor al del empleado, no cumple la regla
+    IF EXISTS ( SELECT * FROM inserted i WHERE dbo.ej13(empl_jefe) < ( SELECT empl_salario * 0.2 FROM empleado WHERE empl_codigo = i.empl_jefe ) ) -- El subselect trae el sueldo del jefe
+    BEGIN
+        PRINT 'ÉL SALARIO DEL JEFE ES MAYOR'
+        ROLLBACK
+    END
+
+    IF EXISTS ( SELECT * FROM deleted d WHERE dbo.ej13(empl_jefe) < ( SELECT empl_salario * 0.2 FROM empleado WHERE empl_codigo = d.empl_jefe ) ) -- El subselect trae el sueldo del jefe
+    BEGIN
+        PRINT 'ÉL SALARIO DEL JEFE ES MAYOR'
+        ROLLBACK
+    END
+    
+END
+GO
+
+-- Me trae el sueldo de todos los subordinados
+CREATE FUNCTION ej13 ( @empleado NUMERIC(6) )
+RETURNS INTEGER
+AS
+BEGIN
+    DECLARE @salario DECIMAL(12,2);
+    SELECT @salario = 0;
+
+    -- Si sos empleado no tenes a nadie a cargo
+    IF NOT EXISTS ( SELECT SUM ( empl_salario ) FROM empleado WHERE empl_jefe = @empleado)
+        RETURN @salario; -- 0
+
+    -- Contar empleados directos
+    SELECT @salario = SUM ( empl_salario ) FROM empleado WHERE empl_jefe = @empleado;
+
+    -- Contar empleados indirectos
+    DECLARE @jefe numeric(6);
+    DECLARE cl CURSOR FOR SELECT empl_codigo FROM empleado WHERE empl_jefe = @empleado;
+    
+    OPEN cl;
+    FETCH NEXT FROM cl INTO @jefe;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SELECT @salario = @salario + dbo.ej13(@jefe);
+        FETCH NEXT FROM cl INTO @jefe;
+    END;
+    CLOSE cl;
+    DEALLOCATE cl;
+    
+    RETURN @salario;
+END
+GO
+
+SELECT dbo.ej11(1) AS TotalEmpleadosACargo 
+GO
+---------------------------------------------------14---------------------------------------------------
+
+-- Agregar el/los objetos necesarios para que si:
+-- Un cliente compra un producto compuesto a un precio menor que la suma de los precios de sus componentes que imprima la fecha, que cliente, que productos y a qué precio se realizó la compra. 
+-- No se deberá permitir que dicho precio sea menor a la mitad de la suma de los componentes.
+
+CREATE TRIGGER TR_Validar_Precio_Producto_Compuesto
+ON Item_Factura
+AFTER INSERT
+AS
+BEGIN
+    -- Primero validamos si hay algún producto con componenntes y despues si su precio es menor a la mitad del de sus productos
+    IF EXISTS ( SELECT 1 
+                FROM inserted i 
+                WHERE i.item_producto IN (SELECT DISTINCT comp_producto FROM Composicion)
+                AND i.item_precio < (dbo.precioDeComponentes(i.item_producto) / 2)
+            )
+    BEGIN
+        PRINT('No se permite vender productos compuestos a un precio menor a la mitad del costo de sus componentes')
+        ROLLBACK
+        RETURN
+    END
+
+    -- Si no hay precios menores a la mitad, verificamos e imprimimos los casos bajo costo
+    SELECT 'ALERTA: Venta bajo costo - ' +
+            'Fecha: ' + f.fact_fecha +
+            ', Cliente: ' + f.fact_cliente +
+            ', Producto: ' + p.prod_detalle +
+            ', Precio Venta: ' + i.item_precio +
+            ', Costo Componentes: ' + dbo.precioDeComponentes(i.item_producto)
+    FROM inserted i
+    JOIN Factura f ON f.fact_tipo = i.item_tipo AND f.fact_sucursal = i.item_sucursal AND f.fact_numero = i.item_numero
+    JOIN Producto p ON p.prod_codigo = i.item_producto
+    WHERE i.item_producto IN (SELECT DISTINCT comp_producto FROM Composicion)
+    AND i.item_precio < dbo.precioDeComponentes(i.item_producto);
+END
+GO
+
+CREATE FUNCTION precioDeComponentes ( @ProductoID VARCHAR(50) )
+RETURNS DECIMAL(18,2)
+AS
+BEGIN
+    DECLARE @PrecioTotal DECIMAL(18,2)
+
+    SELECT @PrecioTotal = ISNULL ( SUM ( prod_precio * comp_cantidad ) , 0)
+    FROM Composicion
+    JOIN Producto ON prod_codigo = comp_componente
+    WHERE comp_producto = @ProductoID
+
+    RETURN @PrecioTotal
+END
+GO
+
+SELECT dbo.ej11(1) AS TotalEmpleadosACargo 
+GO
+
+---------------------------------------------------15---------------------------------------------------
+
+-- Cree el/los objetos de base de datos necesarios para que el objeto principal reciba un producto como parametro y retorne el precio del mismo.
+-- Se debe prever que el precio de los productos compuestos sera la sumatoria de los componentes del mismo multiplicado por sus respectivas cantidades. 
+-- No se conocen los nivles de anidamiento posibles de los productos. 
+-- Se asegura que nunca un producto esta compuesto por si mismo a ningun nivel. 
+-- El objeto principal debe poder ser utilizado como filtro en el where de una sentencia select.
+
+---------------------------------------------------16---------------------------------------------------
