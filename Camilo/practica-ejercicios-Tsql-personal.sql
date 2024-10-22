@@ -1,8 +1,8 @@
 /* 19. Cree el/los objetos de base de datos necesarios para que se cumpla la siguiente
-regla de negocio automáticamente “Ningún jefe puede tener menos de 5 años de
-antigüedad y tampoco puede tener más del 50% del personal a su cargo
-(contando directos e indirectos) a excepción del gerente general”. Se sabe que en
-la actualidad la regla se cumple y existe un único gerente general. */
+regla de negocio automï¿½ticamente ï¿½Ningï¿½n jefe puede tener menos de 5 aï¿½os de
+antigï¿½edad y tampoco puede tener mï¿½s del 50% del personal a su cargo
+(contando directos e indirectos) a excepciï¿½n del gerente generalï¿½. Se sabe que en
+la actualidad la regla se cumple y existe un ï¿½nico gerente general. */
 
 create trigger ejer19 on Empleado after insert, update
 as
@@ -20,12 +20,13 @@ BEGIN
 		rollback
 	end
 END
+GO
 
 /* 24. Se requiere recategorizar los encargados asignados a los depositos. Para ello
 cree el o los objetos de bases de datos necesarios que lo resueva, teniendo en
 cuenta que un deposito no puede tener como encargado un empleado que
 pertenezca a un departamento que no sea de la misma zona que el deposito, si
-esto ocurre a dicho deposito debera asignársele el empleado con menos
+esto ocurre a dicho deposito debera asignï¿½rsele el empleado con menos
 depositos asignados que pertenezca a un departamento de esa zona. */
 
 create procedure ejer24
@@ -61,11 +62,11 @@ BEGIN
 	close c1
 	deallocate c1
 END
-
+GO
 /* 30 Agregar el/los objetos necesarios para crear una regla por la cual un cliente no
-pueda comprar más de 100 unidades en el mes de ningún producto, si esto
-ocurre no se deberá ingresar la operación y se deberá emitir un mensaje “Se ha
-superado el límite máximo de compra de un producto”. Se sabe que esta regla se
+pueda comprar mï¿½s de 100 unidades en el mes de ningï¿½n producto, si esto
+ocurre no se deberï¿½ ingresar la operaciï¿½n y se deberï¿½ emitir un mensaje ï¿½Se ha
+superado el lï¿½mite mï¿½ximo de compra de un productoï¿½. Se sabe que esta regla se
 cumple y que las facturas no pueden ser modificadas. */
 
 create trigger ej_30  on item_factura instead of insert
@@ -92,11 +93,11 @@ BEGIN
 		SELECT item_numero, item_sucursal, item_tipo, item_producto, item_cantidad, item_precio FROM inserted;
 	end
 END
-
+GO
 /* 31. Desarrolle el o los objetos de base de datos necesarios, para que un jefe no pueda
-tener más de 20 empleados a cargo, directa o indirectamente, si esto ocurre
-debera asignarsele un jefe que cumpla esa condición, si no existe un jefe para
-asignarle se le deberá colocar como jefe al gerente general que es aquel que no
+tener mï¿½s de 20 empleados a cargo, directa o indirectamente, si esto ocurre
+debera asignarsele un jefe que cumpla esa condiciï¿½n, si no existe un jefe para
+asignarle se le deberï¿½ colocar como jefe al gerente general que es aquel que no
 tiene jefe. */
 
 create trigger ej_31 on Empleado for update
@@ -106,7 +107,7 @@ BEGIN
 
 	select gerente_general  = empl_codigo from empleado where empl_jefe = null
 
-	-- Crear una tabla temporal para almacenar los jefes que cumplen con la condición
+	-- Crear una tabla temporal para almacenar los jefes que cumplen con la condiciï¿½n
 	create table #JefesDisponibles (jefe_codigo INT)
 	
 	-- Insertar jefes que tienen menos de 20 empleados (directos e indirectos) a cargo
@@ -129,7 +130,7 @@ BEGIN
     GROUP BY e1.empl_codigo
     HAVING COUNT(e2.empl_codigo) <= 20
 
-	-- Crear un cursor para recorrer los jefes con más de 20 empleados a cargo
+	-- Crear un cursor para recorrer los jefes con mï¿½s de 20 empleados a cargo
 	DECLARE jefe_cursor CURSOR FOR WITH EmpleadosCTE AS (SELECT empl_jefe, empl_codigo FROM Empleado WHERE empl_jefe IS NOT NULL
 						  
 														 UNION ALL 
@@ -166,7 +167,7 @@ BEGIN
         WHILE @@FETCH_STATUS = 0
         begin
 
-            -- Buscar un nuevo jefe que cumpla con la condición
+            -- Buscar un nuevo jefe que cumpla con la condiciï¿½n
             SELECT TOP 1 @nuevo_jefe = jefe_codigo FROM #JefesDisponibles
 			
 			WHERE jefe_codigo <> @jefe_actual
@@ -211,12 +212,12 @@ BEGIN
     -- Limpiar la tabla temporal
     DROP TABLE #JefesDisponibles
 END
-
+GO
 /* 22. Se requiere recategorizar los rubros de productos, de forma tal que nigun rubro
-tenga más de 20 productos asignados, si un rubro tiene más de 20 productos
+tenga mï¿½s de 20 productos asignados, si un rubro tiene mï¿½s de 20 productos
 asignados se deberan distribuir en otros rubros que no tengan mas de 20
 productos y si no entran se debra crear un nuevo rubro en la misma familia con
-la descirpción “RUBRO REASIGNADO”, cree el/los objetos de base de datos
+la descirpciï¿½n ï¿½RUBRO REASIGNADOï¿½, cree el/los objetos de base de datos
 necesarios para que dicha regla de negocio quede implementada */
 
 CREATE PROCEDURE RecategorizarRubros
@@ -224,7 +225,7 @@ AS
 BEGIN
     DECLARE @rubro_actual char(4), @familia_actual char(3), @nuevo_rubro char(4), @producto char(8)
 
-    -- Crear un cursor para recorrer los rubros con más de 20 productos
+    -- Crear un cursor para recorrer los rubros con mï¿½s de 20 productos
     DECLARE rubro_cursor CURSOR FOR SELECT prod_rubro, prod_familia, COUNT(prod_codigo) as cantidad_productos FROM Producto
 									
 									GROUP BY prod_rubro, prod_familia
@@ -278,29 +279,29 @@ BEGIN
     CLOSE rubro_cursor
     DEALLOCATE rubro_cursor
 END
-
+GO
 /* 23. Desarrolle el/los elementos de base de datos necesarios para que ante una venta
-automaticamante se controle que en una misma factura no puedan venderse más
-de dos productos con composición. Si esto ocurre debera rechazarse la factura. */
+automaticamante se controle que en una misma factura no puedan venderse mï¿½s
+de dos productos con composiciï¿½n. Si esto ocurre debera rechazarse la factura. */
 
 create trigger ej23 on item_factura instead of insert
 as
 BEGIN
-    -- Contar la cantidad de productos con composición en la factura
+    -- Contar la cantidad de productos con composiciï¿½n en la factura
     IF (SELECT COUNT(distinct item_producto) FROM Item_Factura i1
         
 		join Composicion c1 ON c1.comp_producto = i1.item_producto
 		join factura f1 on f1.fact_numero + f1.fact_sucursal + f1.fact_tipo = i1.item_numero + i1.item_sucursal + i1.item_tipo) > 2
     BEGIN
-        -- Si hay más de 2 productos con composición, rechazar la factura
-        print ('No se pueden vender más de dos productos con composición en una misma factura.')
+        -- Si hay mï¿½s de 2 productos con composiciï¿½n, rechazar la factura
+        print ('No se pueden vender mï¿½s de dos productos con composiciï¿½n en una misma factura.')
         ROLLBACK
     END
 END
-
+GO
 /* Implementar una regla de negocio en linea que registre los productos que al momento de venderse 
 registraron un aumento superior al 10% del precio de venta que tuvieron en el mes anterior. 
-Se deberá registrar el producto, la fecha en el cual se hace la venta, el precio anterior y el precio nuevo. */
+Se deberï¿½ registrar el producto, la fecha en el cual se hace la venta, el precio anterior y elï¿½precioï¿½nuevo. */
 
 CREATE TABLE registroAumentoPrecio (
     producto_codigo CHAR(8),
@@ -308,6 +309,7 @@ CREATE TABLE registroAumentoPrecio (
     precio_anterior int,
     precio_nuevo int
 )
+GO
 
 CREATE TRIGGER trg_AumentoPrecio
 ON Item_factura
@@ -348,3 +350,4 @@ BEGIN
     CLOSE venta_cursor
     DEALLOCATE venta_cursor
 END
+GO

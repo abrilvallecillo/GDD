@@ -584,60 +584,100 @@ GO
 
 SELECT dbo.ej11(1) AS TotalEmpleadosACargo 
 GO
----------------------------------------------------14---------------------------------------------------
+---------------------------------------------------14---------------------------------------------------PARCIAL
 
 -- Agregar el/los objetos necesarios para que si:
 -- Un cliente compra un producto compuesto a un precio menor que la suma de los precios de sus componentes que imprima la fecha, que cliente, que productos y a qué precio se realizó la compra. 
 -- No se deberá permitir que dicho precio sea menor a la mitad de la suma de los componentes.
 
-CREATE TRIGGER TR_Validar_Precio_Producto_Compuesto
-ON Item_Factura
-AFTER INSERT
+CREATE TRIGGER ej14 ON item_factura instead of INSERT  
+-- AFTER --> Entran todos los renglones o ninguno, para que no quede inconsistente la factura
+-- instead of -- Cursores --> Algunos entraran y otros tiraran error 
+                          --> Tratamiento individual
+-- SIMPRE instead of VA CON Cursores
 AS
 BEGIN
-    -- Primero validamos si hay algún producto con componenntes y despues si su precio es menor a la mitad del de sus productos
-    IF EXISTS ( SELECT 1 
-                FROM inserted i 
-                WHERE i.item_producto IN (SELECT DISTINCT comp_producto FROM Composicion)
-                AND i.item_precio < (dbo.precioDeComponentes(i.item_producto) / 2)
+	DECLARE @prod char(8), 
+			@precio decimal(12,4), 
+			@fecha datetime, 
+			@cliente char(4), 
+			@tipo char(1), @sucursal char(4), @numero char(8), 
+			@cantidad decimal(12,2)
+	
+    -- Declara un cursor con todos los productos que son compuestos
+	DECLARE c1 CURSOR FOR SELECT item_producto, 
+                                item_precio, 
+                                fact_fecha, 
+                                fact_cliente, 
+                                fact_tipo, fact_sucursal, fact_numero, 
+                                item_cantidad 
+						FROM inserted
+						JOIN factura ON fact_numero + fact_sucursal + fact_tipo = item_numero + item_sucursal + item_tipo
+						WHERE item_producto IN ( SELECT comp_producto FROM Composicion) 
+	
+	OPEN c1
+
+	FETCH NEXT INTO @prod, 
+					@precio, 
+					@fecha, 
+					@cliente, 
+					@tipo, @sucursal, @numero, 
+					@cantidad
+
+	WHILE @@FETCH_STATUS = 0
+
+    -- Que voy a controlar --> Si su precio es menor a la mitad del de sus componentes
+	BEGIN 
+		IF @precio < ( SELECT sum(prod_precio * comp_cantidad) FROM composicion JOIN producto ON prod_codigo = comp_componente GROUP BY comp_producto ) * 2 
+		
+        BEGIN
+			PRINT('no se puede ingresar el producto ' + @prod)
+
+			FETCH NEXT INTO @prod, 
+					@precio, 
+					@fecha, 
+					@cliente, 
+					@tipo, @sucursal, @numero, 
+					@cantidad
+
+			CONTINUE
+		END
+		
+        -- Si es precio es menor a lo que salen por separado
+		IF @precio < ( SELECT sum(prod_precio * comp_cantidad) FROM composicion JOIN producto ON prod_codigo = comp_componente GROUP BY comp_producto )
+			PRINT(@prod + @fecha + @cliente)
+
+		INSERT item_factura(
+                item_tipo, 
+                item_sucursal, 
+                item_numero, 
+                item_producto, 
+                item_cantidad, 
+                item_precio
             )
-    BEGIN
-        PRINT('No se permite vender productos compuestos a un precio menor a la mitad del costo de sus componentes')
-        ROLLBACK
-        RETURN
-    END
 
-    -- Si no hay precios menores a la mitad, verificamos e imprimimos los casos bajo costo
-    SELECT 'ALERTA: Venta bajo costo - ' +
-            'Fecha: ' + f.fact_fecha +
-            ', Cliente: ' + f.fact_cliente +
-            ', Producto: ' + p.prod_detalle +
-            ', Precio Venta: ' + i.item_precio +
-            ', Costo Componentes: ' + dbo.precioDeComponentes(i.item_producto)
-    FROM inserted i
-    JOIN Factura f ON f.fact_tipo = i.item_tipo AND f.fact_sucursal = i.item_sucursal AND f.fact_numero = i.item_numero
-    JOIN Producto p ON p.prod_codigo = i.item_producto
-    WHERE i.item_producto IN (SELECT DISTINCT comp_producto FROM Composicion)
-    AND i.item_precio < dbo.precioDeComponentes(i.item_producto);
+		VALUES(
+            @tipo, 
+            @sucursal, 
+            @numero, 
+            @prod, 
+            @cantidad, 
+            @precio
+        )
+		
+		FETCH NEXT INTO @prod, 
+					@precio, 
+					@fecha, 
+					@cliente, 
+					@tipo, @sucursal, @numero, 
+					@cantidad
+
+	END
+
+	CLOSE c1
+    
+	DEALLOCATE c1
 END
-GO
-
-CREATE FUNCTION precioDeComponentes ( @ProductoID VARCHAR(50) )
-RETURNS DECIMAL(18,2)
-AS
-BEGIN
-    DECLARE @PrecioTotal DECIMAL(18,2)
-
-    SELECT @PrecioTotal = ISNULL ( SUM ( prod_precio * comp_cantidad ) , 0)
-    FROM Composicion
-    JOIN Producto ON prod_codigo = comp_componente
-    WHERE comp_producto = @ProductoID
-
-    RETURN @PrecioTotal
-END
-GO
-
-SELECT dbo.ej11(1) AS TotalEmpleadosACargo 
 GO
 
 ---------------------------------------------------15---------------------------------------------------
@@ -648,4 +688,97 @@ GO
 -- Se asegura que nunca un producto esta compuesto por si mismo a ningun nivel. 
 -- El objeto principal debe poder ser utilizado como filtro en el where de una sentencia select.
 
+CREATE FUNCTION precioDeComponentes ( @ProductoID char(8) )
+RETURNS DECIMAL(12,2)
+AS
+BEGIN
+    DECLARE @PrecioTotal DECIMAL(12,2)
+
+    -- Si no tenes componentes - Tu precio es lo que es
+    IF NOT EXISTS ( SELECT * FROM composicion WHERE comp_producto = @ProductoID )
+        BEGIN
+            SELECT @PrecioTotal = prod_precio FROM producto WHERE prod_codigo = @ProductoID  
+            RETURN @PrecioTotal
+        END
+   
+    -- Si tenes componentes - Tu precio es el de ellos
+    SELECT @PrecioTotal = 0
+
+    DECLARE @comp char(8), @cantidad DECIMAL (12,2)
+
+    DECLARE cl CURSOR FOR SELECT comp_componente, comp_cantidad, prod_precio FROM composicion JOIN producto ON comp_componente = prod_codigo
+
+    OPEN cl;
+    
+   FETCH NEXT INTO @comp, @cantidad, @PrecioTotal;
+    
+    WHILE @@FETCH_STATUS = 0
+    
+    BEGIN
+        SELECT @PrecioTotal = @PrecioTotal + @cantidad * dbo.precioDeComponentes(@ProductoID);
+    
+        FETCH NEXT INTO @comp, @cantidad, @PrecioTotal;
+    
+    END;
+    
+    CLOSE cl;
+    
+    DEALLOCATE cl;
+    
+    RETURN @PrecioTotal;
+END
+GO
+
 ---------------------------------------------------16---------------------------------------------------
+
+-- Desarrolle el/los elementos de base de datos necesarios para que ante una venta automaticamante se descuenten del stock los articulos vendidos. 
+-- Se descontaran del deposito que mas producto poseea y se supone que el stock se almacena tanto de productos simples como compuestos (si se acaba el stock de los compuestos no se arman combos)
+-- En caso que no alcance el stock de un deposito se descontara del siguiente y asi hasta agotar los depositos posibles. 
+-- En ultima instancia se dejara stock negativo en el ultimo deposito que se desconto.
+
+CREATE TRIGGER articulosVendidos ON item_factura instead of INSERT  
+AS
+BEGIN
+
+-- 1. Me fijo si es compuestoo o no 
+-- 2. En base a eso veo como bajo la cantidad en STOCK
+
+	DECLARE @prod char(8), @cantidad decimal(12,2), @deposito CHAR(2), @depo_ant CHAR(2)
+    DECLARE c1 CURSOR FOR SELECT item_producto, item_cantidad FROM inserted  
+	OPEN c1
+	FETCH NEXT INTO @prod, @cantidad
+	WHILE @@FETCH_STATUS = 0
+    -- Que voy a controlar --> Si es compuesto o no
+	BEGIN 
+		IF EXISTS ( SELECT * FROM composicion WHERE comp_producto = @prod )
+            -- CON COMPONENTES
+            BEGIN
+                DECLARE @componente char(8), @cantcomp decimal (12,2)
+                DECLARE c_comp CURSOR FOR SELECT comp_componente, comp_cantidad * @cantidad FROM Composicion WHERE comp_producto = @prod
+                OPEN c2
+                FETCH NEXT INTO @componente, @cantcomp
+                WHILE @@FETCH_STATUS = 0
+                BEGIN
+                    SELECT TOP 1 @deposito = stoc_deposito FROM stock WHERE @componente = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
+                    IF @deposito IS NULL
+                        SELECT @deposito = @depo_ant
+                    UPDATE stock SET stoc_cantidad = stoc_cantidad - @cantcomp WHERE stoc_producto = @componente and stoc_deposito = @deposito
+                    FETCH NEXT INTO @componente, @cantcomp
+                END
+            CLOSE c2
+	        DEALLOCATE c2
+            END
+		ELSE
+        -- SIN COMPONENTES
+            BEGIN
+                SELECT TOP 1 @deposito = stoc_deposito FROM stock WHERE @prod = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
+                IF @deposito IS NULL
+                    SELECT @deposito = @depo_ant
+                UPDATE stock SET stoc_cantidad = stoc_cantidad - @cantidad WHERE stoc_producto = @prod and stoc_deposito = @deposito
+                FETCH NEXT INTO @prod, @cantidad
+            END
+	END
+	CLOSE c1
+	DEALLOCATE c1
+END
+GO

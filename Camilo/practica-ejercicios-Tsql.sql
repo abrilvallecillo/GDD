@@ -1,8 +1,8 @@
-/* 1. Hacer una función que dado un artículo y un deposito devuelva un string que
-indique el estado del depósito según el artículo. Si la cantidad almacenada es
-menor al límite retornar “OCUPACION DEL DEPOSITO XX %” siendo XX el
-% de ocupación. Si la cantidad almacenada es mayor o igual al límite retornar
-“DEPOSITO COMPLETO”. */
+/* 1. Hacer una funciï¿½n que dado un artï¿½culo y un deposito devuelva un string que
+indique el estado del depï¿½sito segï¿½n el artï¿½culo. Si la cantidad almacenada es
+menor al lï¿½mite retornar ï¿½OCUPACION DEL DEPOSITO XX %ï¿½ siendo XX el
+% de ocupaciï¿½n. Si la cantidad almacenada es mayor o igual al lï¿½mite retornar
+ï¿½DEPOSITO COMPLETOï¿½. */
 
 --"create" para crear la funcion. Una vez creada, si la quiero modificar, uso "alter"
 
@@ -17,6 +17,7 @@ BEGIN
 		return 'DEPOSITO COMPLETO' 
 	return 'OCUPACION DEL DEPOSITO ' + @deposito + ' ' + str((@cantidad / @limite) * 100) + '%'
 end
+go
 
 select prod_codigo, prod_detalle, stoc_deposito, stoc_cantidad, stoc_stock_maximo, dbo.ej1(stoc_producto, stoc_deposito) from producto 
 
@@ -25,13 +26,13 @@ join stock on prod_codigo = stoc_producto
 order by prod_detalle
 
 /* 3. Cree el/los objetos de base de datos necesarios para corregir la tabla empleado
-en caso que sea necesario. Se sabe que debería existir un único gerente general
-(debería ser el único empleado sin jefe). Si detecta que hay más de un empleado
-sin jefe deberá elegir entre ellos el gerente general, el cual será seleccionado por
-mayor salario. Si hay más de uno se seleccionara el de mayor antigüedad en la
-empresa. Al finalizar la ejecución del objeto la tabla deberá cumplir con la regla
-de un único empleado sin jefe (el gerente general) y deberá retornar la cantidad
-de empleados que había sin jefe antes de la ejecución. */
+en caso que sea necesario. Se sabe que deberï¿½a existir un ï¿½nico gerente general
+(deberï¿½a ser el ï¿½nico empleado sin jefe). Si detecta que hay mï¿½s de un empleado
+sin jefe deberï¿½ elegir entre ellos el gerente general, el cual serï¿½ seleccionado por
+mayor salario. Si hay mï¿½s de uno se seleccionara el de mayor antigï¿½edad en la
+empresa. Al finalizar la ejecuciï¿½n del objeto la tabla deberï¿½ cumplir con la regla
+de un ï¿½nico empleado sin jefe (el gerente general) y deberï¿½ retornar la cantidad
+de empleados que habï¿½a sin jefe antes de la ejecuciï¿½n. */
 
 create procedure ej3 (@cantidad int output)
 as 
@@ -55,10 +56,10 @@ declare @cant integer
 exec dbo.ej3 @cant
 print @cant
 end
-
+go
 /* 6. Realizar un procedimiento que si en alguna factura se facturaron componentes
 que conforman un combo determinado (o sea que juntos componen otro
-producto de mayor nivel), en cuyo caso deberá reemplazar las filas
+producto de mayor nivel), en cuyo caso deberï¿½ reemplazar las filas
 correspondientes a dichos productos por una sola fila con el producto que
 componen con la cantidad de dicho producto que corresponda */
 
@@ -138,9 +139,9 @@ BEGIN
 		close cFacturas 
 		deallocate cFacturas
 end
-
-/* 9. Crear el/los objetos de base de datos que ante alguna modificación de un ítem de
-factura de un artículo con composición realice el movimiento de sus
+go
+/* 9. Crear el/los objetos de base de datos que ante alguna modificaciï¿½n de un ï¿½tem de
+factura de un artï¿½culo con composiciï¿½n realice el movimiento de sus
 correspondientes componentes. */
 
 create trigger ej9 on item_factura for insert 
@@ -171,8 +172,8 @@ begin
 end
 go
 
-/* 10. Crear el/los objetos de base de datos que ante el intento de borrar un artículo
-verifique que no exista stock y si es así lo borre en caso contrario que emita un
+/* 10. Crear el/los objetos de base de datos que ante el intento de borrar un artï¿½culo
+verifique que no exista stock y si es asï¿½ lo borre en caso contrario que emita un
 mensaje de error. */
 
 create trigger ej10 on producto instead of delete
@@ -196,11 +197,11 @@ BEGIN
 	close c1
 	deallocate c1
 END
-
-/* 11. Cree el/los objetos de base de datos necesarios para que dado un código de
+go
+/* 11. Cree el/los objetos de base de datos necesarios para que dado un cï¿½digo de
 empleado se retorne la cantidad de empleados que este tiene a su cargo (directa o
 indirectamente). Solo contar aquellos empleados (directos o indirectos) que
-tengan un código mayor que su jefe directo. */
+tengan un cï¿½digo mayor que su jefe directo. */
 
 create function ej11 (@empleado numeric(6))
 returns integer
@@ -225,11 +226,11 @@ BEGIN
 	deallocate c1
 	return @cantidad
 END
-
+go
 /* 12. Cree el/los objetos de base de datos necesarios para que nunca un producto
-pueda ser compuesto por sí mismo. Se sabe que en la actualidad dicha regla se
+pueda ser compuesto por sï¿½ mismo. Se sabe que en la actualidad dicha regla se
 cumple y que la base de datos es accedida por n aplicaciones de diferentes tipos
-y tecnologías. No se conoce la cantidad de niveles de composición existentes. */
+y tecnologï¿½as. No se conoce la cantidad de niveles de composiciï¿½n existentes. */
 
 create trigger ej12 on composicion after insert, update
 AS
@@ -266,12 +267,12 @@ BEGIN
 	deallocate c1
 	return 0
 END
-
+go
 /* 13. Cree el/los objetos de base de datos necesarios para implantar la siguiente regla
-“Ningún jefe puede tener un salario mayor al 20% de las suma de los salarios de
-sus empleados totales (directos + indirectos)”. Se sabe que en la actualidad dicha
+ï¿½Ningï¿½n jefe puede tener un salario mayor al 20% de las suma de los salarios de
+sus empleados totales (directos + indirectos)ï¿½. Se sabe que en la actualidad dicha
 regla se cumple y que la base de datos es accedida por n aplicaciones de
-diferentes tipos y tecnologías */
+diferentes tipos y tecnologï¿½as */
 
 create trigger eje13 on empleado for insert, update, delete
 AS
@@ -289,7 +290,7 @@ BEGIN
 		rollback
 	end
 END
-
+go
 create function [dbo].[ej13] (@empleado numeric(6))
 returns integer
 AS
@@ -312,50 +313,71 @@ BEGIN
 	deallocate c1
 	return @salario
 END
-
+go
 /* 14. Agregar el/los objetos necesarios para que si un cliente compra un producto
 compuesto a un precio menor que la suma de los precios de sus componentes
-que imprima la fecha, que cliente, que productos y a qué precio se realizó la
-compra. No se deberá permitir que dicho precio sea menor a la mitad de la suma
+que imprima la fecha, que cliente, que productos y a quï¿½ precio se realizï¿½ la
+compra. No se deberï¿½ permitir que dicho precio sea menor a la mitad de la suma
 de los componentes. */
 
 create trigger ej14 on item_factura instead of insert 
 AS
 BEGIN
-	declare @prod char(8), @precio decimal(12,4), @fecha datetime, @cliente char(4), @tipo char(1), @sucursal char(4), @numero char(8), @cantidad decimal(12,2)
-	declare c1 cursor for select item_producto, item_precio, fact_fecha, fact_cliente, fact_tipo, fact_sucursal, fact_numero, item_cantidad from inserted
-						  
-						  join factura on fact_numero + fact_sucursal + fact_tipo = item_numero + item_sucursal + item_tipo
-
-						  where item_producto in (select comp_producto from Composicion)
+	declare @prod char(8), 
+			@precio decimal(12,4), 
+			@fecha datetime, 
+			@cliente char(4), 
+			@tipo char(1), 
+			@sucursal char(4), 
+			@numero char(8), 
+			@cantidad decimal(12,2)
+	
+	declare c1 cursor for select item_producto, item_precio, fact_fecha, fact_cliente, fact_tipo, fact_sucursal, fact_numero, item_cantidad 
+						from inserted
+						join factura on fact_numero + fact_sucursal + fact_tipo = item_numero + item_sucursal + item_tipo
+						where item_producto in (select comp_producto from Composicion)
+	
 	open c1
-	fetch next into @prod, @precio, @fecha, @cliente, @tipo, @sucursal, @numero, @cantidad
+	fetch next into @prod, 
+					@precio, 
+					@fecha, 
+					@cliente, 
+					@tipo, 
+					@sucursal, 
+					@numero, 
+					@cantidad
+
 	while @@FETCH_STATUS = 0
 	begin
-		if @precio < (select sum(prod_precio * comp_cantidad) from composicion 
-
-						 join producto on prod_codigo = comp_componente 
-
-						 group by comp_producto) * 2
+		if @precio < (select sum(prod_precio * comp_cantidad) 
+						from composicion 
+						join producto on prod_codigo = comp_componente 
+						group by comp_producto
+					) * 2
+		
 		begin
 			print('no se puede ingresar el producto ' + @prod)
 			fetch next into @prod, @precio, @fecha, @cliente, @tipo, @sucursal, @numero, @cantidad
 			continue
 		end
-		if @precio < (select sum(prod_precio * comp_cantidad) from composicion 
-
-						 join producto on prod_codigo = comp_componente 
-
-						 group by comp_producto)
+		
+		if @precio < (select sum(prod_precio * comp_cantidad)
+						from composicion 
+						join producto on prod_codigo = comp_componente 
+						group by comp_producto
+					)
 			print(@prod + @fecha + @cliente)
+
 		insert item_factura(item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio)
+		
 		values(@tipo, @sucursal, @numero, @prod, @cantidad, @precio)
+		
 		fetch next into @prod, @precio, @fecha, @cliente, @tipo, @sucursal, @numero, @cantidad
 	end
 	close c1
 	deallocate c1
 END
-
+go
 /* 18. Sabiendo que el limite de credito de un cliente es el monto maximo que se le
 puede facturar mensualmente, cree el/los objetos de base de datos necesarios
 para que dicha regla de negocio se cumpla automaticamente. No se conoce la
@@ -383,3 +405,4 @@ BEGIN
 	close c1
 	deallocate c1
 END
+go
