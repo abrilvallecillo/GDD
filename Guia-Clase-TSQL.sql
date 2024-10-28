@@ -935,3 +935,28 @@ GO
 ---------------------------------------------------27---------------------------------------------------
 ---------------------------------------------------28---------------------------------------------------
 ---------------------------------------------------29---------------------------------------------------
+
+CREATE PROCEDURE ej31 
+AS 
+BEGIN
+    DECLARE @EMPLEADO NUMERIC(6), @JEFE_ALTERNATIVO NUMERIC(6), @CANTIDAD INT 
+    DECLARE cursor_empleado CURSOR FOR SELECT empl_codigo FROM Empleado where dbo.ej11(empl_codigo) > 20
+    OPEN cursor_empleado
+    FETCH NEXT FROM cursor_empleado INTO @EMPLEADO
+    WHILE (@@FETCH_STATUS = 0)
+    -- Busco a un jefe alternativo para redistribuir
+    BEGIN
+        SELECT @JEFE_ALTERNATIVO = empl_codigo FROM Empleado WHERE empl_codigo = @empleado AND dbo.ej11(empl_codigo) < 20
+        
+        -- Si no tengo un jefe alternativo, busco al gerente gral
+        IF @JEFE_ALTERNATIVO IS NULL
+            SELECT @JEFE_ALTERNATIVO = empl_codigo FROM Empleado WHERE empl_jefe IS NULL
+        
+        -- Redistribuyo a los excedentes
+        UPDATE Empleado SET empl_jefe = @JEFE_ALTERNATIVO WHERE empl_jefe = @EMPLEADO
+        
+        FETCH NEXT FROM cursor_empleado INTO @EMPLEADO
+    END
+    CLOSE cursor_empleado
+    DEALLOCATE cursor_empleado
+END
