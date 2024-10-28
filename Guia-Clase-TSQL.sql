@@ -590,48 +590,27 @@ CREATE TRIGGER ej14 ON item_factura instead of INSERT
 -- SIMPRE instead of VA CON Cursores
 AS
 BEGIN
-	DECLARE @prod char(8), 
-			@precio decimal(12,4), 
-			@fecha datetime, 
-			@cliente char(4), 
-			@tipo char(1), @sucursal char(4), @numero char(8), 
-			@cantidad decimal(12,2)
+	DECLARE @prod char(8), @precio decimal(12,4), @fecha datetime, @cliente char(4), @tipo char(1), @sucursal char(4), @numero char(8), @cantidad decimal(12,2)
 	
     -- Declara un cursor con todos los productos que son compuestos
-	DECLARE c1 CURSOR FOR SELECT item_producto, 
-                                item_precio, 
-                                fact_fecha, 
-                                fact_cliente, 
-                                fact_tipo, fact_sucursal, fact_numero, 
-                                item_cantidad 
-						FROM inserted
-						JOIN factura ON fact_numero + fact_sucursal + fact_tipo = item_numero + item_sucursal + item_tipo
-						WHERE item_producto IN ( SELECT comp_producto FROM Composicion) 
+	DECLARE c1 CURSOR FOR SELECT item_producto, item_precio, fact_fecha, fact_cliente, fact_tipo, fact_sucursal, fact_numero, item_cantidad 
+						    FROM inserted
+						    JOIN factura ON fact_numero + fact_sucursal + fact_tipo = item_numero + item_sucursal + item_tipo
+						    WHERE item_producto IN ( SELECT comp_producto FROM Composicion) 
 	
 	OPEN c1
 
-	FETCH NEXT INTO @prod, 
-					@precio, 
-					@fecha, 
-					@cliente, 
-					@tipo, @sucursal, @numero, 
-					@cantidad
+	FETCH NEXT INTO @prod, @precio, @fecha, @cliente, @tipo, @sucursal, @numero, @cantidad
 
 	WHILE @@FETCH_STATUS = 0
 
     -- Que voy a controlar --> Si su precio es menor a la mitad del de sus componentes
 	BEGIN 
 		IF @precio < ( SELECT sum(prod_precio * comp_cantidad) FROM composicion JOIN producto ON prod_codigo = comp_componente GROUP BY comp_producto ) * 2 
-		
         BEGIN
 			PRINT('no se puede ingresar el producto ' + @prod)
 
-			FETCH NEXT INTO @prod, 
-					@precio, 
-					@fecha, 
-					@cliente, 
-					@tipo, @sucursal, @numero, 
-					@cantidad
+			FETCH NEXT INTO @prod, @precio, @fecha, @cliente, @tipo, @sucursal, @numero, @cantidad
 
 			CONTINUE
 		END
@@ -640,30 +619,11 @@ BEGIN
 		IF @precio < ( SELECT sum(prod_precio * comp_cantidad) FROM composicion JOIN producto ON prod_codigo = comp_componente GROUP BY comp_producto )
 			PRINT(@prod + @fecha + @cliente)
 
-		INSERT item_factura(
-                item_tipo, 
-                item_sucursal, 
-                item_numero, 
-                item_producto, 
-                item_cantidad, 
-                item_precio
-            )
+		INSERT item_factura( item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio )
 
-		VALUES(
-            @tipo, 
-            @sucursal, 
-            @numero, 
-            @prod, 
-            @cantidad, 
-            @precio
-        )
+		VALUES( @tipo, @sucursal, @numero, @prod, @cantidad, @precio )
 		
-		FETCH NEXT INTO @prod, 
-					@precio, 
-					@fecha, 
-					@cliente, 
-					@tipo, @sucursal, @numero, 
-					@cantidad
+		FETCH NEXT INTO @prod, @precio, @fecha, @cliente, @tipo, @sucursal, @numero, @cantidad
 
 	END
 
@@ -926,15 +886,7 @@ BEGIN
 END
 GO
 
----------------------------------------------------21---------------------------------------------------
----------------------------------------------------22---------------------------------------------------
----------------------------------------------------23---------------------------------------------------
----------------------------------------------------24---------------------------------------------------
----------------------------------------------------25---------------------------------------------------
----------------------------------------------------26---------------------------------------------------
----------------------------------------------------27---------------------------------------------------
----------------------------------------------------28---------------------------------------------------
----------------------------------------------------29---------------------------------------------------
+---------------------------------------------------31---------------------------------------------------
 
 CREATE PROCEDURE ej31 
 AS 

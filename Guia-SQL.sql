@@ -542,12 +542,11 @@ ORDER BY 5 DESC
 ---------------------------------------------------16---------------------------------------------------
 
 -- Con el fin de lanzar una nueva campaña comercial para los clientes que menos compran en la empresa, se pide una consulta SQL que retorne aquellos 
-        -- clientes cuyas compras son inferiores a 1/3 del monto de ventas del producto que más se vendió en el 2012.
+        -- Clientes cuyas compras son inferiores a 1/3 del monto de ventas del producto que más se vendió en el 2012.
         -- Además mostrar
         -- Nombre del Cliente
         -- Cantidad de unidades totales vendidas en el 2012 para ese cliente.
         -- Código de producto que mayor venta tuvo en el 2012 (en caso de existir más de 1, mostrar solamente el de menor código) para ese cliente.
-
 
 ---------------------------------------------------
 
@@ -560,9 +559,7 @@ GROUP BY item_producto, item_cantidad
 ORDER BY item_cantidad DESC
 
 -- Cantidad de compras de los clientes
-SELECT fact_cliente, COUNT(fact_cliente)
-FROM Factura
-GROUP BY fact_cliente
+SELECT fact_cliente, COUNT(fact_cliente) FROM Factura GROUP BY fact_cliente
 
 -- Que producto fue el mas comprado para ese cliente
 SELECT fact_cliente, item_producto, item_cantidad
@@ -574,29 +571,29 @@ ORDER BY (item_cantidad) DESC
 
 SELECT clie_razon_social AS 'Nombre del Cliente', 
 
-       COUNT(item_producto) AS 'Cantidad de unidades totales vendidas en el 2012 para ese cliente',
+       isnull ( sum ( item_cantidad ) , 0 )  AS 'Cantidad de unidades totales vendidas en el 2012 para ese cliente',
 
        ( SELECT TOP 1 item_producto
 	FROM Item_Factura
 	JOIN Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
         WHERE clie_codigo = fact_cliente AND YEAR(fact_fecha) = 2012
 	GROUP BY item_producto
-	ORDER BY COUNT(item_producto) DESC, item_producto ASC
+	ORDER BY SUM(item_cantidad) DESC, item_producto ASC
 	) AS 'Código de producto que mayor venta tuvo en el 2012 para ese cliente'
 
-FROM Factura
-JOIN Cliente ON fact_cliente = clie_codigo
-JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
-WHERE fact_total > ( ( SELECT TOP 1 AVG(item_precio)
-	                FROM Item_Factura
-		        JOIN Factura ON item_tipo = fact_tipo AND item_numero = fact_numero AND item_sucursal =fact_sucursal
-                        WHERE YEAR(fact_fecha) = 2012
-                        GROUP BY item_producto, item_cantidad
-                        ORDER BY item_cantidad DESC
-                        ) /3)
-	AND YEAR(fact_fecha) = 2012
+FROM Cliente-- Me trae todos los clientes, incluso los que no compraron
+LEFT JOIN Factura ON fact_cliente = clie_codigo and YEAR( fact_fecha ) = 2012 -- SOLO SI ES LEFT
+LEFT JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
 GROUP BY clie_razon_social, clie_codigo
-ORDER BY clie_razon_social
+HAVING isnull(sum(item_precio*item_cantidad),0) < ( ( SELECT TOP 1 AVG ( item_precio*item_cantidad ) 
+                                        FROM Item_Factura
+                                        JOIN Factura ON item_tipo = fact_tipo AND item_numero = fact_numero AND item_sucursal = fact_sucursal
+                                        WHERE YEAR(fact_fecha) = 2012
+                                        GROUP BY item_producto
+                                        ORDER BY 1 DESC
+                                        ) /3
+                                     )
+ORDER BY 2
 
 ---------------------------------------------------17---------------------------------------------------
 
@@ -959,145 +956,116 @@ ORDER BY SUM ( item_cantidad ) DESC
 
 -- Realizar una consulta SQL que para cada año y familia muestre :
         -- Año
-        -- El código de la familia más vendida en ese año.
-        -- Cantidad de Rubros que componen esa familia.
-        -- Cantidad de productos que componen directamente al producto más vendido de esa familia.
-        -- La cantidad de facturas en las cuales aparecen productos pertenecientes a esa familia.
-        -- El código de cliente que más compro productos de esa familia.
-        -- El porcentaje que representa la venta de esa familia respecto al total de venta del año.
-        -- El resultado deberá ser ordenado por el total vendido por año y familia en forma descendente.
-
-SELECT  YEAR(F.fact_fecha) AS 'Año',
-
-    P.prod_familia AS 'Código de la familia más vendida en ese año',
-
-    COUNT(DISTINCT P.prod_rubro) AS 'Cantidad de Rubros que componen esa familia',
-
-    (
-        SELECT COUNT(DISTINCT comp_componente)
-        FROM Composicion
-        JOIN Producto ON comp_producto = prod_codigo
-        WHERE prod_familia = P.prod_familia
-        AND prod_codigo = ( SELECT TOP 1 item_producto
-                            FROM Factura
-                            JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
-                            JOIN Producto ON item_producto = prod_codigo
-                            WHERE YEAR ( fact_fecha ) = YEAR (F.fact_fecha ) AND prod_familia = P.prod_familia
-                            GROUP BY item_producto
-                            ORDER BY SUM ( item_cantidad * item_precio) DESC
-                        )
-    ) AS 'Cantidad de productos que componen directamente al producto más vendido de esa familia',
-
-    COUNT(DISTINCT F.fact_tipo + F.fact_sucursal + F.fact_numero) AS 'Cantidad de facturas con productos de esa familia',
-
-    (
-        SELECT TOP 1 fact_cliente
-        FROM Factura
-        JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
-        JOIN Producto ON item_producto = prod_codigo
-        WHERE YEAR ( fact_fecha ) = YEAR ( F.fact_fecha ) AND prod_familia = P.prod_familia
-        GROUP BY fact_cliente
-        ORDER BY SUM ( item_cantidad * item_precio ) DESC
-    ) AS 'Código de Cliente que más compró productos de esa familia',
-
-    (
-        SUM ( I.item_cantidad * I.item_precio ) * 100.0 / ( SELECT SUM ( item_cantidad * item_precio )
-                                                            FROM Factura 
-                                                            JOIN Item_Factura ON fact_tipo = item_tipo AND  fact_sucursal = item_sucursal AND  fact_numero = item_numero
-                                                            WHERE YEAR ( fact_fecha ) = YEAR(F.fact_fecha)
-                                                            )
-    ) AS 'Porcentaje de venta de la Familia respecto al total del año'
-
-FROM Factura F
-JOIN Item_Factura I ON F.fact_tipo = I.item_tipo AND F.fact_sucursal = I.item_sucursal AND F.fact_numero = I.item_numero
-JOIN Producto P ON I.item_producto = P.prod_codigo
-WHERE P.prod_familia = ( SELECT TOP 1 prod_familia
-                        FROM Factura  
-                        JOIN Item_Factura ON  fact_tipo = item_tipo AND  fact_sucursal = item_sucursal AND  fact_numero = item_numero
-                        JOIN Producto ON item_producto = prod_codigo
-                        WHERE YEAR ( fact_fecha ) = YEAR ( F.fact_fecha )
-                        GROUP BY prod_familia
-                        ORDER BY SUM ( item_cantidad * item_precio ) DESC
-                        )-- Seleccionar la familia más vendida en ese año
-GROUP BY YEAR ( F.fact_fecha ), P.prod_familia
-ORDER BY SUM ( I.item_cantidad * I.item_precio ) DESC;
-
----------------------------------------------------
+        -- El código de la familia más vendida en ese año. --> TOP 1 --> SUBSELECT
+        -- Cantidad de Rubros que componen esa familia. --> SUBSELECT
+        -- Cantidad de productos que componen directamente al producto más vendido de esa familia. --> SUBSELECT
+        -- La cantidad de facturas en las cuales aparecen productos pertenecientes a esa familia. --> SUBSELECT
+        -- El código de cliente que más compro productos de esa familia. --> TOP 1 --> SUBSELECT
+        -- El porcentaje que representa la venta de esa familia respecto al total de venta del año. --> SUBSELECT
+        -- El resultado deberá ser ordenado por el total vendido por año y familia en forma descendente. 
 
 SELECT 
-    YEAR(F.fact_fecha) AS [AÑO],
-    FAM.fami_id,
-    COUNT(DISTINCT P.prod_rubro) AS [CANTIDAD DE RUBROS QUE COMPONEN LA FAMILIA (SUBDIVIDO ANUALMENTE)],
+    YEAR(F.fact_fecha) AS 'Año',
 
-    CASE 
-        -- Verifica si el producto más vendido de la familia tiene componentes
-        WHEN (
-            (
-                SELECT TOP 1 prod_codigo
-                FROM Producto
-                INNER JOIN Item_Factura ON item_producto = prod_codigo
-                INNER JOIN Factura ON fact_numero = item_numero 
-                    AND fact_sucursal = item_sucursal 
-                    AND fact_tipo = item_tipo
-                WHERE prod_familia = FAM.fami_id 
-                    AND YEAR(fact_fecha) = YEAR(F.fact_fecha)
-                GROUP BY prod_codigo
-                ORDER BY SUM(item_cantidad) DESC
-            ) IN (SELECT comp_producto FROM Composicion)
-        )
-        -- Si lo tiene, cuenta cuántos componentes tiene
-        THEN (
-            SELECT COUNT(*)
-            FROM Composicion
-            WHERE comp_producto = (
-                SELECT TOP 1 prod_codigo
-                FROM Producto
-                JOIN Item_Factura ON item_producto = prod_codigo
-                JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
-                WHERE prod_familia = FAM.fami_id AND YEAR(fact_fecha) = YEAR(F.fact_fecha)
-                GROUP BY prod_codigo
-                ORDER BY SUM(item_cantidad) DESC
-            )
-        )
-        -- Si no tiene componentes, devuelve 1
-        ELSE 1
-        END AS [CANT DE PROD QUE CONFORMAN EL MAS VENDIDO],
+    (
+        SELECT TOP 1 prod_familia 
+        FROM Factura 
+        JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero 
+        JOIN Producto ON prod_codigo = item_producto
+        WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha)
+        GROUP BY prod_familia
+        ORDER BY SUM(item_cantidad) DESC 
+    ) AS 'Código de la familia más vendida en ese año',
 
-    COUNT(DISTINCT F.fact_tipo + F.fact_numero + F.fact_sucursal) AS [CANT FACTURAS EN LOS QUE APARECEN PRODS DE LA FAMI],
+    (
+        SELECT COUNT(DISTINCT prod_rubro) 
+        FROM Producto 
+        WHERE prod_familia = ( -- FAMILIA MAS VENDIDA
+                                SELECT TOP 1 prod_familia
+                                FROM Factura 
+                                JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero 
+                                JOIN Producto ON prod_codigo = item_producto
+                                WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha)
+                                GROUP BY prod_familia
+                                ORDER BY SUM(item_cantidad) DESC
+                            )
+    ) AS 'Cantidad de Rubros que componen esa familia',
 
-    -- Cliente que más compró productos de la familia
+   (
+        SELECT COUNT(*)
+        FROM Composicion 
+        WHERE comp_producto = ( -- EL PRODUCTO DE ESA FAMILIA QUE MAS SE VENDIO
+                                SELECT TOP 1 item_producto
+                                FROM Factura 
+                                JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero 
+                                JOIN Producto ON prod_codigo = item_producto
+                                WHERE prod_familia = ( -- FAMILIA MAS VENDIDA
+                                                        SELECT TOP 1 prod_familia
+                                                        FROM Factura 
+                                                        JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero 
+                                                        JOIN Producto ON prod_codigo = item_producto
+                                                        WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha)
+                                                        GROUP BY prod_familia
+                                                        ORDER BY SUM(item_cantidad) DESC
+                                                     )
+                                GROUP BY item_producto
+                                ORDER BY SUM(item_cantidad) DESC
+                              )
+    ) AS 'Cantidad de productos que componen directamente al producto más vendido de esa familia',
+
+    (
+        SELECT COUNT ( DISTINCT fact_tipo + fact_sucursal + fact_numero )
+        FROM Factura 
+        JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
+        JOIN Producto ON prod_codigo = item_producto
+        WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) AND prod_familia = ( -- FAMILIA MAS VENDIDA
+                                                                                SELECT TOP 1 prod_familia 
+                                                                                FROM Factura 
+                                                                                JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
+                                                                                JOIN Producto ON prod_codigo = item_producto
+                                                                                WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha)
+                                                                                GROUP BY prod_familia
+                                                                                ORDER BY SUM(item_cantidad) DESC
+                                                                        )
+    ) AS 'Cantidad de facturas con productos de esa familia',
+
     (
         SELECT TOP 1 fact_cliente
-        FROM Factura
-        JOIN Item_Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
+        FROM Factura 
+        JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
         JOIN Producto ON prod_codigo = item_producto
-        WHERE prod_familia = FAM.fami_id AND YEAR(fact_fecha) = YEAR(F.fact_fecha)
+        WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) AND prod_familia = ( -- FAMILIA MAS VENDIDA
+                                                                                SELECT TOP 1 prod_familia 
+                                                                                FROM Factura 
+                                                                                JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
+                                                                                JOIN Producto ON prod_codigo = item_producto
+                                                                                WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha)
+                                                                                GROUP BY prod_familia
+                                                                                ORDER BY SUM(item_cantidad) DESC
+                                                                        )
         GROUP BY fact_cliente
         ORDER BY SUM(item_cantidad) DESC
-    ) AS [CLIENTE QUE MAS COMPRO DE LA FAMILIA],
+    ) AS 'Cliente con mayor cantidad en familia más vendida',
 
-    -- Porcentaje de ventas de la familia respecto al total anual
-    (SUM(IFACT.item_cantidad * IFACT.item_precio) * 100) / (  SELECT SUM ( item_cantidad * item_precio )
-                                                                FROM Factura
-                                                                JOIN Item_Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
-                                                                JOIN Producto ON prod_codigo = item_producto
-                                                                WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha)
-    ) AS [PORCENTAJE VENDIDO POR FAMILIA VS TOTAL ANUAL]
+    (
+        SELECT SUM(item_cantidad * item_precio) * 100.0 / SUM(fact_total)
+        FROM Factura 
+        JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
+        JOIN Producto ON prod_codigo = item_producto
+        WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) AND prod_familia = ( -- FAMILIA MAS VENDIDA
+                                                                                SELECT TOP 1 prod_familia 
+                                                                                FROM Factura 
+                                                                                JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
+                                                                                JOIN Producto ON prod_codigo = item_producto
+                                                                                WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha)
+                                                                                GROUP BY prod_familia
+                                                                                ORDER BY SUM(item_cantidad) DESC
+                                                                        )
+    ) AS 'Porcentaje del monto de familia sobre total anual'
 
-FROM FAMILIA FAM
-JOIN Producto P ON P.prod_familia = FAM.fami_id
-JOIN Rubro R ON R.rubr_id = P.prod_rubro
-JOIN Item_Factura IFACT ON IFACT.item_producto = P.prod_codigo
-JOIN Factura F ON F.fact_numero = IFACT.item_numero AND F.fact_sucursal = IFACT.item_sucursal AND F.fact_tipo = IFACT.item_tipo
-WHERE FAM.fami_id = ( SELECT TOP 1 prod_familia
-                        FROM Producto
-                        JOIN Item_Factura ON item_producto = prod_codigo
-                        JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
-                        GROUP BY prod_familia
-                        ORDER BY SUM(item_cantidad) DESC
-                        )
-GROUP BY YEAR(F.fact_fecha), FAM.fami_id
-ORDER BY SUM(IFACT.item_cantidad * IFACT.item_precio) DESC, FAM.fami_id;
+FROM Factura F
+GROUP BY YEAR(F.fact_fecha)
+ORDER BY 1;
 
 ---------------------------------------------------26---------------------------------------------------
 
@@ -1121,7 +1089,7 @@ SELECT E.empl_codigo AS 'Empleado',
         FROM Factura F
         WHERE F.fact_vendedor = E.empl_codigo 
         GROUP BY F.fact_cliente
-        ORDER BY SUM ( fact_total )
+        ORDER BY SUM ( fact_total ) DESC
     ) AS 'Codigo de Cliente al que más le vendió',
 
     (
@@ -1133,10 +1101,10 @@ SELECT E.empl_codigo AS 'Empleado',
         ORDER BY SUM ( I.item_cantidad ) DESC
     ) AS 'Producto más vendido',
 
-        ( ( SELECT SUM ( fact_total ) FROM Factura WHERE fact_vendedor = E.empl_codigo ) * 100) / ( SELECT SUM ( fact_total ) FROM Factura ) AS 'Porcentaje de la venta de ese empleado sobre el total vendido ese año'
+        ( SELECT SUM ( fact_total ) FROM Factura WHERE fact_vendedor = E.empl_codigo ) * 100 / ( SELECT SUM ( fact_total ) FROM Factura ) AS 'Porcentaje de la venta de ese empleado sobre el total vendido ese año'
 
 FROM Empleado E
-JOIN Deposito D ON D.depo_encargado = E.empl_codigo
+LEFT JOIN Deposito D ON D.depo_encargado = E.empl_codigo  -- Para que el que no tenga depositos a cargo tambien me lo traiga
 JOIN Factura F ON F.fact_vendedor = E.empl_codigo
 GROUP BY E.empl_codigo
 ORDER BY 1 DESC
@@ -1203,7 +1171,7 @@ ORDER BY YEAR(F.fact_fecha), enva_codigo
         -- Los datos deberan ser ordenados por año y dentro del año por el vendedor que haya vendido mas productos diferentes de mayor a menor.
 
 SELECT YEAR(F.fact_fecha) AS 'Año',
-    
+
     F.fact_vendedor AS 'Codigo de Vendedor',
     
     E.empl_nombre AS 'Detalle del Vendedor',
@@ -1215,11 +1183,10 @@ SELECT YEAR(F.fact_fecha) AS 'Año',
         (
 		SELECT COUNT(DISTINCT prod_codigo)
 		FROM Producto
-		JOIN Composicion ON comp_producto = prod_codigo
 		JOIN Item_Factura ON item_producto = prod_codigo
 		JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
 		WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) 
-                AND fact_vendedor = F.fact_vendedor
+                AND prod_codigo IN (SELECT comp_producto FROM Composicion)
 	) AS 'Cantidad de productos facturados con composición en ese año',
     
         ( 
@@ -1229,7 +1196,6 @@ SELECT YEAR(F.fact_fecha) AS 'Año',
 		ON item_producto = prod_codigo
 		JOIN Factura ON fact_numero = item_numero AND fact_sucursal = item_sucursal AND fact_tipo = item_tipo
 		WHERE YEAR(fact_fecha) = YEAR(F.fact_fecha) 
-                AND fact_vendedor = F.fact_vendedor 
                 AND prod_codigo NOT IN (SELECT comp_producto FROM Composicion)
 	) AS 'Cantidad de productos facturados sin composición en ese año',
     
@@ -1238,7 +1204,7 @@ SELECT YEAR(F.fact_fecha) AS 'Año',
 FROM Factura F
 JOIN Empleado E ON F.fact_vendedor = E.empl_codigo
 GROUP BY YEAR(F.fact_fecha), F.fact_vendedor, E.empl_nombre
-ORDER BY YEAR(F.fact_fecha) DESC
+ORDER BY 1, SUM( F.fact_total ) desc
 
 ---------------------------------------------------29---------------------------------------------------
 
