@@ -54,10 +54,6 @@ RETURN (
 END
 GO
 
----------------------------------------------------2---------------------------------------------------
-
--- Realizar una función que dado un artículo y una fecha, retorne el stock que existía a esa fecha
-
 ---------------------------------------------------3---------------------------------------------------
 
 -- Cree el/los objetos de base de datos necesarios para corregir la tabla empleado en caso que sea necesario. 
@@ -269,7 +265,7 @@ BEGIN
         cant_movimientos int,       -- Cantidad de movimientos de ventas (Item Factura)
         precio_venta decimal(12,2), -- Precio promedio de venta
         renglon int,                -- Número de línea de la tabla (PK)
-        ganancia NUMERIC(12,2)      -- Precio de venta - Cantidad * Costo Actual
+        ganancia NUMERIC(12,2)      -- Precio de venta - Cantidad * Precio
     )
 
     -- Declaración de variables
@@ -424,10 +420,6 @@ BEGIN
     DEALLOCATE cdelete 
 END
 GO
-
----------------------------------------------------10---------------------------------------------------
-
---  Crear el/los objetos de base de datos que ante el intento de borrar un artículo verifique que no exista stock y si es así lo borre en caso contrario que emita un mensaje de error.
 
 ---------------------------------------------------11---------------------------------------------------
 
@@ -584,6 +576,7 @@ GO
 
 SELECT dbo.ej11(1) AS TotalEmpleadosACargo 
 GO
+
 ---------------------------------------------------14---------------------------------------------------PARCIAL
 
 -- Agregar el/los objetos necesarios para que si:
@@ -736,49 +729,209 @@ GO
 -- En caso que no alcance el stock de un deposito se descontara del siguiente y asi hasta agotar los depositos posibles. 
 -- En ultima instancia se dejara stock negativo en el ultimo deposito que se desconto.
 
-CREATE TRIGGER articulosVendidos ON item_factura instead of INSERT  
+CREATE TRIGGER articuloVendido ON Item_factura INSTEAD OF INSERT
 AS
 BEGIN
 
 -- 1. Me fijo si es compuestoo o no 
 -- 2. En base a eso veo como bajo la cantidad en STOCK
 
-	DECLARE @prod char(8), @cantidad decimal(12,2), @deposito CHAR(2), @depo_ant CHAR(2)
-    DECLARE c1 CURSOR FOR SELECT item_producto, item_cantidad FROM inserted  
+	DECLARE @producto char(8), @cantidad decimal(12,2), @deposito CHAR(2), @depo_ant CHAR(2), @depo_cantidad DECIMAL (12,2)
+    DECLARE c1 CURSOR FOR SELECT item_producto, item_cantidad FROM inserted   -- CURSOR : Simpre que tengamos situaciones distintas vamos a tener que usarlo, ya que vamos a tener que darle un trato distinto a cada uno
 	OPEN c1
-	FETCH NEXT INTO @prod, @cantidad
+	FETCH NEXT INTO @producto, @cantidad
 	WHILE @@FETCH_STATUS = 0
     -- Que voy a controlar --> Si es compuesto o no
 	BEGIN 
-		IF EXISTS ( SELECT * FROM composicion WHERE comp_producto = @prod )
+		IF EXISTS ( SELECT * FROM composicion WHERE comp_producto = @producto )
             -- CON COMPONENTES
             BEGIN
                 DECLARE @componente char(8), @cantcomp decimal (12,2)
-                DECLARE c_comp CURSOR FOR SELECT comp_componente, comp_cantidad * @cantidad FROM Composicion WHERE comp_producto = @prod
-                OPEN c2
+                DECLARE c_comp CURSOR FOR SELECT comp_componente, comp_cantidad * @cantidad FROM Composicion WHERE comp_producto = @producto -- Trae los productos de ese componenete
+                OPEN c_comp
                 FETCH NEXT INTO @componente, @cantcomp
                 WHILE @@FETCH_STATUS = 0
+                -- Que voy a controlar --> Si es compuesto o no
                 BEGIN
-                    SELECT TOP 1 @deposito = stoc_deposito FROM stock WHERE @componente = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
-                    IF @deposito IS NULL
-                        SELECT @deposito = @depo_ant
-                    UPDATE stock SET stoc_cantidad = stoc_cantidad - @cantcomp WHERE stoc_producto = @componente and stoc_deposito = @deposito
-                    FETCH NEXT INTO @componente, @cantcomp
+                DECLARE c_deposito CURSOR FOR SELECT  stoc_deposito, stoc_Cantidad FROM stock WHERE @componente = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
+                OPEN c_deposito
+                FETCH NEXT INTO @deposito, @depo_cantidad
+                WHILE @@FETCH_STATUS = 0 and @cantidad > 0
+                -- Que voy a controlar --> Bajar el stock de todos los depositos, hasta que concuerde con lo vendido
+                BEGIN
+                    if @depo_cantidad >= @cantidad -- El deposito tenia mas productos en stock que los vendidos
+                        BEGIN
+                            UPDATE stock SET stoc_cantidad = stoc_cantidad - @cantidad WHERE stoc_producto = @componente AND stoc_deposito = @deposito
+                            SELECT @cantidad = 0
+                        END
+                    else -- El deposito tenia menos productos en stock que los vendidos
+                        BEGIN
+                            UPDATE stock SET stoc_cantidad = stoc_cantidad - @depo_cantidad WHERE stoc_producto = @componente AND stoc_deposito = @deposito
+                            SELECT @cantidad = @cantidad - @depo_cantidad
+                            SELECT @depo_ant = @deposito
+                        END
+                    fetch next from c_deposito into @deposito, @depo_cantidad
                 END
-            CLOSE c2
-	        DEALLOCATE c2
+                -- Se queda con el ultimo stock que desconto
+                update stock set stoc_cantidad = stoc_cantidad - @depo_cantidad where stoc_producto = @producto and stoc_deposito = @depo_ant
+                FETCH NEXT INTO @producto, @cantidad
+            END
+
+            CLOSE c_comp
+	        DEALLOCATE c_comp
             END
 		ELSE
         -- SIN COMPONENTES
             BEGIN
-                SELECT TOP 1 @deposito = stoc_deposito FROM stock WHERE @prod = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
-                IF @deposito IS NULL
-                    SELECT @deposito = @depo_ant
-                UPDATE stock SET stoc_cantidad = stoc_cantidad - @cantidad WHERE stoc_producto = @prod and stoc_deposito = @deposito
-                FETCH NEXT INTO @prod, @cantidad
+                DECLARE c_deposito CURSOR FOR SELECT  stoc_deposito, stoc_Cantidad FROM stock WHERE @producto = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
+                OPEN c_deposito
+                FETCH NEXT INTO @deposito, @depo_cantidad
+                WHILE @@FETCH_STATUS = 0 and @cantidad > 0
+                -- Que voy a controlar --> Bajar el stock de todos los depositos, hasta que concuerde con lo vendido
+                BEGIN
+                    if @depo_cantidad >= @cantidad -- El deposito tenia mas productos en stock que los vendidos
+                        BEGIN
+                            UPDATE stock SET stoc_cantidad = stoc_cantidad - @cantidad WHERE stoc_producto = @producto AND stoc_deposito = @deposito
+                            SELECT @cantidad = 0
+                        END
+                    else -- El deposito tenia menos productos en stock que los vendidos
+                        BEGIN
+                            UPDATE stock SET stoc_cantidad = stoc_cantidad - @depo_cantidad WHERE stoc_producto = @producto AND stoc_deposito = @deposito
+                            SELECT @cantidad = @cantidad - @depo_cantidad
+                            SELECT @depo_ant = @deposito
+                        END
+                    fetch next from c_deposito into @deposito, @depo_cantidad
+                END
+                -- Se queda con el ultimo stock que desconto
+                update stock set stoc_cantidad = stoc_cantidad - @depo_cantidad where stoc_producto = @producto and stoc_deposito = @depo_ant
+                FETCH NEXT INTO @producto, @cantidad
             END
 	END
 	CLOSE c1
 	DEALLOCATE c1
 END
 GO
+
+DROP TRIGGER IF EXISTS articulosVendidos;
+GO
+
+---------------------------------------------------17---------------------------------------------------
+
+-- Sabiendo que el punto de reposicion del stock es la menor cantidad de ese objeto que se debe almacenar en el deposito y que el stock maximo es la maxima cantidad de ese producto en ese deposito, cree el/los objetos de base de datos necesarios para que dicha regla de negocio se cumpla automaticamente. 
+-- No se conoce la forma de acceso a los datos ni el procedimiento por el cual se incrementa o descuenta stock
+
+SELECT stoc_cantidad AS 'Lo que tengo', 
+stoc_punto_reposicion AS 'Lo minimo que tengo', 
+stoc_stock_maximo AS 'Lo maximo que tengo'
+FROM STOCK
+GO
+
+CREATE TRIGGER reposicion ON STOCK AFTER UPDATE, INSERT
+AS
+BEGIN
+    IF EXISTS (SELECT * FROM inserted i WHERE i.stoc_cantidad < i.stoc_punto_reposicion)
+    BEGIN
+        print 'Reponer producto'
+        ROLLBACK
+    END
+    
+    IF EXISTS (SELECT * FROM inserted i WHERE i.stoc_cantidad > i.stoc_stock_maximo)
+    BEGIN
+        print 'Se supero el stock'
+        ROLLBACK
+    END
+END
+GO
+
+CREATE TRIGGER reposicion2 ON STOCK AFTER UPDATE, INSERT
+AS
+BEGIN
+    IF EXISTS (SELECT * FROM inserted i WHERE i.stoc_cantidad < i.stoc_punto_reposicion OR i.stoc_cantidad > i.stoc_stock_maximo)
+    BEGIN
+        print 'Hay que controlar la cantidad de STOCK'
+        ROLLBACK
+    END
+END
+GO
+
+---------------------------------------------------18---------------------------------------------------
+
+-- Sabiendo que el limite de credito de un cliente es el monto maximo que se le puede facturar mensualmente, cree el/los objetos de BD necesarios para que dicha regla de negocio se cumpla automaticamente. 
+-- No se conoce la forma de acceso a los datos ni el procedimiento por el cual se emiten las facturas
+
+CREATE TRIGGER limiteDeCredito ON Factura AFTER INSERT -- Las facturas no se modifican
+AS
+BEGIN
+    DECLARE @cliente char (4), @anio numeric(4), @mes numeric (2)
+    DECLARE c1 CURSOR FOR SELECT fact_cliente, year(fact_fecha), month(fact_fecha) FROM inserted
+    OPEN c1
+    FETCH NEXT FROM c1 INTO @cliente, @anio, @mes
+    WHILE @@FETCH_STATUS = 0 
+    BEGIN
+        IF ( SELECT SUM(fact_total) FROM factura WHERE fact_cliente = @cliente AND YEAR ( fact_fecha ) = @anio AND MONTH ( fact_fecha ) = @mes ) > ( SELECT clie_limite_credito FROM Cliente WHERE ( @cliente = clie_codigo ) )
+        BEGIN
+            PRINT 'Se supero el limite de credito' 
+            CLOSE c1
+            DEALLOCATE c1
+            ROLLBACK
+        END
+        FETCH NEXT FROM c1 INTO @cliente, @anio, @mes
+    END
+    CLOSE c1
+    DEALLOCATE c1
+END
+GO
+
+---------------------------------------------------19---------------------------------------------------
+
+-- Cree el/los objetos de BD necesarios para que se cumpla la siguiente regla de negocio automáticamente
+-- "Ningún jefe puede tener menos de 5 años de antiguedad y tampoco puede tener más del 50% del personal a su cargo (contando directos e indirectos) a excepción del gerente general". 
+-- Se sabe que en la actualidad la regla se cumple y existe un único gerente general.
+
+CREATE TRIGGER ningunJefe ON Empleado FOR INSERT, UPDATE, DELETE 
+AS
+-- Puede tener menos de 5 años de antiguedad y tampoco puede tener más del 50% del personal a su cargo
+BEGIN
+    IF EXISTS ( SELECT * FROM inserted i JOIN empleado e ON e.empl_codigo = i.empl_jefe WHERE dbo.ej11(i.empl_jefe) > ( SELECT COUNT(empl_codigo)/2 FROM empleado ) AND e.empl_ingreso > ( GETDATE() - 365*5 ) )
+        ROLLBACK    
+    
+    IF EXISTS ( SELECT * FROM inserted i WHERE dbo.ej11(i.empl_jefe) > ( SELECT COUNT(empl_codigo)/2 FROM empleado ) )
+        ROLLBACK 
+END
+GO
+
+---------------------------------------------------20---------------------------------------------------
+
+-- Crear el/los objeto/s necesarios para mantener actualizadas las comisiones del vendedor.
+-- El cálculo de la comisión está dado por el 5% de la venta total efectuada por ese vendedor en ese mes, más un 3% adicional en caso de que ese vendedor haya vendido por lo menos 50 productos distintos en el mes.
+
+CREATE TRIGGER comisionVendedor ON Factura FOR INSERT, DELETE
+AS
+BEGIN
+    DECLARE @vendedor numeric (6), @anio numeric(4), @mes numeric (2)
+    DECLARE c1 CURSOR FOR SELECT fact_vendedor, year(fact_fecha), month(fact_fecha) FROM inserted
+    OPEN c1
+    FETCH NEXT FROM c1 INTO @vendedor, @anio, @mes
+    WHILE @@FETCH_STATUS = 0 
+    BEGIN
+        UPDATE empleado SET empl_comision = ( SELECT SUM(fact_total)*0.05 FROM factura WHERE fact_vendedor = @vendedor AND YEAR ( fact_fecha ) = @anio AND MONTH ( fact_fecha ) = @mes ) WHERE empl_codigo = @vendedor
+        
+        IF ( SELECT COUNT( distinct item_producto ) FROM factura JOIN item_factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero WHERE fact_vendedor = @vendedor AND year (fact_fecha) = @anio AND month (fact_fecha) = @mes ) >=50
+            UPDATE empleado SET empl_comision = ( SELECT SUM(fact_total)*1.03 FROM factura WHERE fact_vendedor = @vendedor AND YEAR ( fact_fecha ) = @anio AND MONTH ( fact_fecha ) = @mes ) WHERE empl_codigo = @vendedor
+
+        FETCH NEXT FROM c1 INTO @vendedor, @anio, @mes
+    END
+    CLOSE c1
+    DEALLOCATE c1
+END
+GO
+
+---------------------------------------------------21---------------------------------------------------
+---------------------------------------------------22---------------------------------------------------
+---------------------------------------------------23---------------------------------------------------
+---------------------------------------------------24---------------------------------------------------
+---------------------------------------------------25---------------------------------------------------
+---------------------------------------------------26---------------------------------------------------
+---------------------------------------------------27---------------------------------------------------
+---------------------------------------------------28---------------------------------------------------
+---------------------------------------------------29---------------------------------------------------

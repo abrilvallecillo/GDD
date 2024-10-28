@@ -24,6 +24,7 @@ select prod_codigo, prod_detalle, stoc_deposito, stoc_cantidad, stoc_stock_maxim
 join stock on prod_codigo = stoc_producto
 
 order by prod_detalle
+go
 
 /* 3. Cree el/los objetos de base de datos necesarios para corregir la tabla empleado
 en caso que sea necesario. Se sabe que deber�a existir un �nico gerente general

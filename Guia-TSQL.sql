@@ -291,6 +291,12 @@ GO
 -- El objeto principal debe poder ser utilizado como filtro en el where de una sentencia select.
 
 ---------------------------------------------------16---------------------------------------------------
+
+-- Desarrolle el/los elementos de base de datos necesarios para que ante una venta automaticamante se descuenten del stock los articulos vendidos. 
+-- Se descontaran del deposito que mas producto poseea y se supone que el stock se almacena tanto de productos simples como compuestos (si se acaba el stock de los compuestos no se arman combos)
+-- En caso que no alcance el stock de un deposito se descontara del siguiente y asi hasta agotar los depositos posibles. 
+-- En ultima instancia se dejara stock negativo en el ultimo deposito que se desconto.
+
 ---------------------------------------------------17---------------------------------------------------
 ---------------------------------------------------18---------------------------------------------------
 ---------------------------------------------------19---------------------------------------------------
