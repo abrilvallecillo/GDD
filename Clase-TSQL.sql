@@ -257,9 +257,5 @@ ROLLBACK [TRANISACTION] [transaction_name |@tran_name_variable] -- Vuelve para a
 
 SET TRANSACTION ISOLATION LEVEL READ COMMITTED | READ UNCOMMITTED | REPEATABLE READ | SERIALIZABLE
 
----------------------------------------------------ROLLBACK TRANSACTION---------------------------------------------------
-
----------------------------------------------------ROLLBACK TRANSACTION---------------------------------------------------
-
 */
 

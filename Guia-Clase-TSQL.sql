@@ -75,20 +75,13 @@ BEGIN
     DECLARE @GerenteGeneral NUMERIC(6)
     
     -- La cantidad de empleados que no tienen Jefe
-    SELECT @cantidad = count(*) 
-    FROM Empleado 
-    WHERE empl_jefe IS NULL
+    SELECT @cantidad = count(*) FROM Empleado WHERE empl_jefe IS NULL
 
     -- El que tiene el salario mas alto y mayor antigüedad
-    SELECT TOP 1 @GerenteGeneral = empl_codigo 
-    FROM Empleado 
-    WHERE empl_jefe IS NULL 
-    ORDER BY empl_salario DESC, empl_ingreso ASC 
+    SELECT TOP 1 @GerenteGeneral = empl_codigo FROM Empleado WHERE empl_jefe IS NULL ORDER BY empl_salario DESC, empl_ingreso ASC 
 
     -- Actualizar los empleados
-    UPDATE Empleado 
-    SET empl_jefe = @GerenteGeneral 
-    WHERE empl_jefe IS NULL AND empl_codigo <> @GerenteGeneral
+    UPDATE Empleado SET empl_jefe = @GerenteGeneral WHERE empl_jefe IS NULL AND empl_codigo <> @GerenteGeneral
 
     RETURN
 END
@@ -109,16 +102,11 @@ BEGIN
     DECLARE @empleado NUMERIC(6)
     
     -- El que tiene el salario mas alto y mayor antigüedad
-    SELECT TOP 1 @GerenteGeneral = empl_codigo 
-    FROM Empleado 
-    WHERE empl_jefe IS NULL 
-    ORDER BY empl_salario DESC, empl_ingreso ASC 
+    SELECT TOP 1 @GerenteGeneral = empl_codigo FROM Empleado WHERE empl_jefe IS NULL ORDER BY empl_salario DESC, empl_ingreso ASC 
 
     -- Crea el cursor que va a traer los empleados que tengo que modificar
     DECLARE GerenteGeneralCursor CURSOR 
-    FOR SELECT empl_codigo 
-        FROM Empleado 
-        WHERE empl_jefe IS NULL AND empl_codigo <> @GerenteGeneral
+    FOR SELECT empl_codigo FROM Empleado WHERE empl_jefe IS NULL AND empl_codigo <> @GerenteGeneral
 
     -- Lo abre
     OPEN GerenteGeneralCursor
@@ -128,9 +116,7 @@ BEGIN
     WHILE @@FETCH_STATUS = 0
     BEGIN
          -- Actualizar los empleados
-        UPDATE Empleado 
-        SET empl_jefe = @GerenteGeneral 
-        WHERE empl_jefe = @empleado
+        UPDATE Empleado SET empl_jefe = @GerenteGeneral WHERE empl_jefe = @empleado
 
         FETCH GerenteGeneralCursor INTO @empleado
     END
@@ -254,7 +240,6 @@ La tabla se encuentra creada y vacía.
 CREATE PROCEDURE Ventas 
 AS
 BEGIN 
-
     -- Eliminar la tabla Ventas si existe
     DROP TABLE IF EXISTS Ventas
     
@@ -330,97 +315,69 @@ RETURN
 END
 GO
 
----------------------------------------------------8---------------------------------------------------
-
-/*
-Realizar un procedimiento que complete la tabla Diferencias de precios, para los productos facturados que tengan composición y en los cuales el precio de facturación sea diferente al precio del cálculo de los precios unitarios por cantidad de sus componentes, se aclara que un producto que compone a otro, también puede estar compuesto por otros y así sucesivamente, la tabla se debe crear y está formada por las siguientes columnas:
-    Código --> Código del articulo
-    Detalle --> Detalle del articulo
-    Cantidad --> Cantidad de productos que conforman el combo
-    Precio_generado --> Precio que se compone a través de sus componentes
-    Precio_facturado --> Precio del producto
-*/
-
-select comp_producto, 
-    p1.prod_detalle, 
-    count(*),
-    sum(comp_cantidad * p2.prod_precio), 
-    p1.prod_precio
-from composicion 
-join producto p1 on p1.prod_codigo = comp_producto
-join producto p2 on p2.prod_codigo = comp_componente
-where p1.prod_codigo in (select distinct item_producto from item_factura)
-group by comp_producto, p1.prod_codigo, p1.prod_detalle, p1.prod_precio
-GO
-
-SELECT comp_producto, 
-
-    p1.prod_detalle, 
-
-    COUNT( DISTINCT comp_componente ), 
-
-    ( SELECT SUM( comp_cantidad * p2.prod_precio ) 
-    FROM Producto p2
-    JOIN Composicion ON comp_componente = p2.prod_codigo AND comp_producto = p1.prod_codigo
-    ),
-
-    p1.prod_precio
-
-FROM Composicion
-JOIN Item_Factura ON comp_producto = item_producto
-JOIN Producto p1 ON comp_producto = p1.prod_codigo
-GROUP BY comp_producto, p1.prod_detalle, p1.prod_precio, p1.prod_codigo
-GO
-
 ---------------------------------------------------9---------------------------------------------------
 
 -- Crear el/los objetos de base de datos que ante alguna modificación de un ítem de factura de un artículo con composición realice el movimiento de sus correspondientes componentes.
 
-create trigger ej9 on item_factura for insert, DELETE
+create trigger ej9 on item_factura FOR INSERT, DELETE
 AS
 BEGIN
     declare @producto char(8), @cantidad numeric(12,2), @deposito char(2)
-    
+
+    -- Caso INSERT
     declare cinsert cursor for select comp_componente, comp_cantidad*item_cantidad  from inserted join composicion on item_producto = comp_producto 
-    
-    declare cdelete cursor for select comp_componente, comp_cantidad*item_cantidad  from deleted join composicion on item_producto = comp_producto 
-    
     open cinsert
-    
     fetch cinsert into @producto, @cantidad
-    
     while @@FETCH_STATUS = 0
-    
     BEGIN
         select top 1 @deposito = stoc_deposito from stock where stoc_producto = @producto order by stoc_cantidad desc
-    
         update stock set stoc_cantidad = stoc_Cantidad - @cantidad where stoc_producto = @producto and stoc_deposito = @deposito
-    
         fetch cinsert into @producto, @cantidad
     END
-    
     close cinsert
-    
     DEALLOCATE cinsert 
-    
+
+    -- Caso DELETE
+    declare cdelete cursor for select comp_componente, comp_cantidad*item_cantidad  from deleted join composicion on item_producto = comp_producto   
     open cdelete
-    
     fetch cdelete into @producto, @cantidad
-    
     while @@FETCH_STATUS = 0
-    
     BEGIN
         select top 1 @deposito = stoc_deposito from stock where stoc_producto = @producto order by stoc_cantidad
         update stock set stoc_cantidad = stoc_Cantidad + @cantidad where stoc_producto = @producto and stoc_deposito = @deposito
         fetch cdelete into @producto, @cantidad
     END
-    
     close cdelete
-    
     DEALLOCATE cdelete 
 END
 GO
+---------------------------------------------------10---------------------------------------------------
 
+-- Crear el/los objetos de base de datos que ante el intento de borrar un artículo verifique que no exista stock y si es así lo borre en caso contrario que emita un mensaje de error.
+
+-- AFTER --> Si habia alguno con stock --> NO BORRA NINGUNO
+
+create trigger ej10 on producto after delete
+AS
+begin
+    if (select count (*) from deleted join stock on stoc_producto = prod_codigo where stoc_cantidad > 0) > 0
+    BEGIN
+        ROLLBACK
+        RAISERROR( 'NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK')
+    END
+END
+GO
+
+create trigger ej10 on producto INSTEAD of delete
+AS
+begin
+    if (select count (*) from deleted join stock on stoc_producto = prod_codigo where stoc_cantidad > 0) > 0
+    BEGIN
+        ROLLBACK
+        RAISERROR( 'NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK')
+    END
+END
+GO
 ---------------------------------------------------11---------------------------------------------------
 
 -- Cree el/los objetos de BD necesarios para que dado un código de empleado se retorne la cantidad de empleados que este tiene a su cargo (directa o indirectamente). 
@@ -445,7 +402,6 @@ BEGIN
     -- Contar empleados indirectos
     DECLARE @jefe numeric(6);
     DECLARE cl CURSOR FOR SELECT empl_codigo FROM empleado WHERE empl_jefe = @empleado;
-    
     OPEN cl;
     FETCH NEXT FROM cl INTO @jefe;
     WHILE @@FETCH_STATUS = 0
@@ -459,6 +415,18 @@ BEGIN
     RETURN @cantidad;
 END
 GO
+
+---------------------------------------------------
+
+CREATE FUNCTION ej11b (@codigo NUMERIC(6))
+RETURNS INT
+AS 
+BEGIN
+    RETURN (SELECT isnull(count(*) + sum(dbo.ej11(empl_codigo)), 0) FROM Empleado WHERE empl_jefe = @codigo)
+END
+GO
+
+---------------------------------------------------
 
 SELECT dbo.ej11(1) AS TotalEmpleadosACargo 
 GO
