@@ -363,7 +363,7 @@ begin
     if (select count (*) from deleted join stock on stoc_producto = prod_codigo where stoc_cantidad > 0) > 0
     BEGIN
         ROLLBACK
-        RAISERROR( 'NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK')
+        RAISERROR( 'NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK', 16, 1)
     END
 END
 GO
@@ -374,10 +374,53 @@ begin
     if (select count (*) from deleted join stock on stoc_producto = prod_codigo where stoc_cantidad > 0) > 0
     BEGIN
         ROLLBACK
-        RAISERROR( 'NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK')
+        RAISERROR( 'NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK', 16, 1)
     END
 END
 GO
+
+---------------------------------------------------
+
+/* QUEREMOS BORRAR LOS QUE SE PUEDA */
+
+create trigger ej10 on producto INSTEAD OF delete 
+AS
+begin 
+    DELETE FROM PRODUCTO WHERE PROD_CODIGO IN (select PROD_CODIGO from deleted WHERE PROD_CODIGO NOT IN 
+    (SELECT DISTINCT STOC_PRODUCTO FROM STOCK where stoc_cantidad > 0))
+END
+GO 
+
+---------------------------------------------------
+
+/* QUEREMOS BORRAR LOS QUE SE PUEDA E INFORMAR UNO POR UNO LOS QUE NO BORRRE*/
+
+create trigger ej10 on producto INSTEAD OF delete 
+AS
+begin 
+    DECLARE @PRODUCTO CHAR(8)
+    DELETE FROM PRODUCTO WHERE PROD_CODIGO IN (
+                                                select PROD_CODIGO 
+                                                from deleted 
+                                                WHERE PROD_CODIGO NOT IN (
+                                                                            SELECT DISTINCT STOC_PRODUCTO 
+                                                                            FROM STOCK 
+                                                                            where stoc_cantidad > 0
+                                                                        )
+                                                )
+    DECLARE C1 CURSOR FOR select DISTINCT STOC_PRODUCTO from deleted join stock on stoc_producto = prod_codigo where stoc_cantidad > 0
+    OPEN C1 
+    FETCH NEXT C1 INTO @PRODUCTO
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        PRINT ('EL PRODUCTO '+@PRODUCTO+' NO SE PUDO BORRAR PORQUE TIENE STOCK')
+        FETCH NEXT C1 INTO @PRODUCTO
+    END
+    CLOSE C1
+    DEALLOCATE C1
+END
+GO 
+
 ---------------------------------------------------11---------------------------------------------------
 
 -- Cree el/los objetos de BD necesarios para que dado un código de empleado se retorne la cantidad de empleados que este tiene a su cargo (directa o indirectamente). 
@@ -389,8 +432,7 @@ CREATE FUNCTION ej11 ( @empleado numeric(6) )
 RETURNS INTEGER
 AS
 BEGIN
-    DECLARE @cantidad INTEGER;
-    SELECT @cantidad = 0;
+    DECLARE @cantidad INTEGER = 0;
 
     -- Si sos empleado no tenes a nadie a cargo
     IF (SELECT COUNT(*) FROM empleado WHERE empl_jefe = @empleado) = 0
@@ -418,6 +460,29 @@ GO
 
 ---------------------------------------------------
 
+CREATE FUNCTION ej11a(@CodigoEmpleado INT)
+RETURNS INT
+AS
+BEGIN
+    DECLARE @Conteo INT = 0, @empleado NUMERIC(6);
+
+    DECLARE c1 CURSOR FOR SELECT empl_codigo FROM Empleado WHERE empl_jefe = @CodigoEmpleado AND empl_codigo > @CodigoEmpleado;
+    OPEN c1;
+    FETCH NEXT FROM c1 INTO @empleado;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @Conteo = @Conteo + 1 + dbo.ej11a(@empleado);
+        FETCH NEXT FROM c1 INTO @empleado;
+    END;
+    CLOSE c1;
+    DEALLOCATE c1;
+
+    RETURN @Conteo;
+END;
+GO
+
+---------------------------------------------------
+
 CREATE FUNCTION ej11b (@codigo NUMERIC(6))
 RETURNS INT
 AS 
@@ -428,7 +493,7 @@ GO
 
 ---------------------------------------------------
 
-SELECT dbo.ej11(1) AS TotalEmpleadosACargo 
+SELECT dbo.ej11a(4) AS TotalEmpleadosACargo 
 GO
 ---------------------------------------------------12---------------------------------------------------
 
@@ -478,6 +543,49 @@ BEGIN
     RETURN 0
 END
 GO
+
+---------------------------------------------------
+
+create function ej1q2 (@producto char(8),@componente char(8))
+returns int
+as 
+BEGIN
+    declare @ret int, @comp char(8) 
+    if @producto = @componente
+        select @ret = 1
+    ELSE
+        begin
+            declare cur_comp cursor for select comp_componente from composicion where comp_producto = @producto
+            open cur_comp
+            fetch cur_comp into @comp
+            while @@FETCH_STATUS = 0 and @ret = 0
+            begin 
+                select @ret = dbo.ej1q2(@producto, @comp)
+                fetch cur_comp into @comp
+            END
+            close cur_comp
+            deallocate cur_comp
+        end
+    return @ret
+END
+go 
+
+---------------------------------------------------
+
+CREATE FUNCTION eje12 (@producto char(8), @componente char(8))
+RETURNS INT
+AS 
+BEGIN
+    declare @ret int = 0
+    if @producto = @componente
+        select @ret = 1
+    ELSE
+        SELECT @ret = MAX(dbo.eje12(@producto, comp_componente)) FROM Composicion WHERE comp_producto = @componente
+    return @ret
+END
+GO
+
+---------------------------------------------------
 
 SELECT DBO. COMPONE (PROD_CODIGO, '00001104') FROM Producto -- Aparecen con 1 el producto y los dos componentes
 select * from Composicion ORDER By comp_producto
@@ -542,6 +650,36 @@ BEGIN
 END
 GO
 
+---------------------------------------------------
+
+create trigger ejer13 on empleado for update, delete  
+AS
+BEGIN
+    if ( select count(*) from inserted i where ( select empl_salario from empleado where empl_codigo = i.empl_jefe ) < dbo.ejer13(i.empl_jefe) * 0.2 ) < 0
+        begin    
+            ROLLBACK
+            PRINT('El salario de la suma de los empeados no puede ser menor al 20% del salario del jefe')        
+        end    
+    
+    if (select count(*) from deleted i where (select empl_salario from empleado where empl_codigo = i.empl_jefe) < dbo.ejer13(i.empl_jefe) * 0.2 ) < 0
+        begin    
+            ROLLBACK
+            PRINT('El salario de la suma de los empeados no puede ser menor al 20% del salario del jefe')        
+        end    
+END
+GO
+
+CREATE FUNCTION ejer13 (@codigo NUMERIC(6))
+RETURNS INT
+AS 
+BEGIN
+    declare @ret numeric(12,2)
+    return (SELECT sum(empl_salario)+dbo.ejer13(empl_codigo) FROM Empleado WHERE empl_jefe = @codigo)
+END
+GO
+
+---------------------------------------------------
+
 SELECT dbo.ej11(1) AS TotalEmpleadosACargo 
 GO
 
@@ -567,9 +705,7 @@ BEGIN
 						    WHERE item_producto IN ( SELECT comp_producto FROM Composicion) 
 	
 	OPEN c1
-
 	FETCH NEXT INTO @prod, @precio, @fecha, @cliente, @tipo, @sucursal, @numero, @cantidad
-
 	WHILE @@FETCH_STATUS = 0
 
     -- Que voy a controlar --> Si su precio es menor a la mitad del de sus componentes
@@ -577,29 +713,81 @@ BEGIN
 		IF @precio < ( SELECT sum(prod_precio * comp_cantidad) FROM composicion JOIN producto ON prod_codigo = comp_componente GROUP BY comp_producto ) * 2 
         BEGIN
 			PRINT('no se puede ingresar el producto ' + @prod)
-
 			FETCH NEXT INTO @prod, @precio, @fecha, @cliente, @tipo, @sucursal, @numero, @cantidad
-
 			CONTINUE
 		END
-		
         -- Si es precio es menor a lo que salen por separado
 		IF @precio < ( SELECT sum(prod_precio * comp_cantidad) FROM composicion JOIN producto ON prod_codigo = comp_componente GROUP BY comp_producto )
 			PRINT(@prod + @fecha + @cliente)
-
-		INSERT item_factura( item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio )
-
-		VALUES( @tipo, @sucursal, @numero, @prod, @cantidad, @precio )
 		
+        INSERT item_factura( item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio )
+		VALUES( @tipo, @sucursal, @numero, @prod, @cantidad, @precio )
 		FETCH NEXT INTO @prod, @precio, @fecha, @cliente, @tipo, @sucursal, @numero, @cantidad
-
 	END
-
 	CLOSE c1
-    
 	DEALLOCATE c1
 END
 GO
+
+---------------------------------------------------
+
+create trigger ej14 on item_factura instead of insert 
+as
+begin 
+    declare @producto char(8), @precio numeric(12,2), @sucursal char(4), @cantidad numeric(12,2), @fecha smalldatetime, @cliente char(4), @tipo char, @numero char(8)
+    
+    -- Definir el cursor para obtener los datos de la factura
+    declare cfact cursor for (
+                                select item_tipo, item_sucursal, item_numero, fact_fecha, fact_cliente 
+                                from inserted 
+                                join factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+                                group by item_tipo, item_sucursal+item_numero
+                            )
+    open cfact
+    fetch cfact netx into @tipo, @sucursal,@numero, @fehca, @cliente
+    while @@FETCH_STATUS = 0
+   
+    BEGIN
+        -- Definir el cursor para obtener los productos de cada factura
+        declare c1 cursor for select item_producto, item_precio, item_cantidad from inserted where item_tipo+item_sucursal+item_numero = @tipo+@sucursal+@numero
+        open c1 fetch c1 netx into @producto, @precio, @cantidad
+        declare @nocumple int = 0
+        while @@FETCH_STATUS = 0 and @nocumple = 0
+        
+        BEGIN
+            -- Verificación de precios
+            if @precio > (select isnull(sum(prod_precio),0) from producto join composicion on comp_producto = @producto and comp_componente = prod_codigo) 
+                insert item_factura values(@tipo,@sucursal,@numero, @producto, @cantidad,@precio)
+            
+            else if @precio < (select isnull(sum(prod_precio),0) from producto join composicion on comp_producto = @producto and comp_componente = prod_codigo) * 0.5 
+                begin
+                    print('la suma de los componentes es menor que 50% del precio del producto '+@producto+' para la fecha '+@fecha+' del cliente '+@cliente)
+                    select @nocumple = 1
+                end
+            
+            else 
+                begin
+                    insert item_factura values(@tipo,@sucursal,@numero, @producto, @cantidad,@precio)
+                    print('la suma de los componentes es menor que el precio del producto '+@producto+' para la fecha '+@fecha+' del cliente '+@cliente)
+                end
+
+            fetch c1 netx into @producto, @precio 
+        END
+        close c1
+        DEALLOCATE c1
+        if @nocumple = 1
+       
+        begin
+            -- Eliminar la factura si alguna condición no cumple
+            DELETE FROM ITEM_FACTURA WHERE item_tipo+item_sucursal+item_numero = @tipo+@sucursal+@numero
+            DELETE FROM FACTURA WHERE fact_tipo+fact_sucursal+fact_numero = @tipo+@sucursal+@numero
+        end
+
+        fetch cfact netx into @tipo, @sucursal,@numero
+
+    END
+end 
+go 
 
 ---------------------------------------------------15---------------------------------------------------
 

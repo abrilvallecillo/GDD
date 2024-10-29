@@ -382,7 +382,7 @@ CREATE TRIGGER BorrarArticulo ON Producto INSTEAD OF DELETE -- Utilizamos INSTEA
 AS
 BEGIN -- Verificamos si el artículo a borrar tiene stock
     IF EXISTS ( SELECT * FROM deleted JOIN STOCK ON prod_codigo = stoc_producto WHERE stoc_cantidad > 0 ) -- lo tiene
-        RAISERROR('NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK')
+        RAISERROR('NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK', 16, 1)
     ELSE
     BEGIN -- no lo tiene
         DELETE FROM Producto WHERE prod_codigo IN (SELECT prod_codigo FROM deleted);
@@ -438,17 +438,120 @@ GO
 ---------------------------------------------------12---------------------------------------------------
 
 -- Cree el/los objetos de BD necesarios para que nunca un producto pueda ser compuesto por sí mismo. 
--- Se sabe que en la actualidad dicha regla se cumple y que la BD es accedida por n aplicaciones de diferentes tipos y tecnologías. No se conoce la cantidad de niveles de composición existentes.
+-- Se sabe que en la actualidad dicha regla se cumple y que la BD es accedida por n aplicaciones de diferentes tipos y tecnologías. 
+-- No se conoce la cantidad de niveles de composición existentes.
+
+CREATE TRIGGER NoCompuestoPorSiMismo ON Composicion INSTEAD OF INSERT, UPDATE -- Utilizamos INSTEAD OF para evitar tener un porducto compuesto por si mismo
+AS
+BEGIN
+    DECLARE @comp_producto CHAR(8), @comp_componente CHAR(8)
+
+    DECLARE cur CURSOR FOR SELECT comp_producto, comp_componente FROM inserted
+    OPEN cur
+    FETCH NEXT FROM cur INTO @comp_producto, @comp_componente;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        DECLARE @current_component CHAR(8) = @comp_componente
+
+        -- Bucle para recorrer la cadena de composición y buscar ciclos
+        WHILE @current_component IS NOT NULL
+        BEGIN
+            IF @current_component = @comp_producto
+            BEGIN
+                RAISERROR ('Error: Un producto no puede componerse a sí mismo.', 16, 1)
+                ROLLBACK
+            END
+
+            ELSE -- Obtener el siguiente componente en la cadena
+                SELECT @current_component = comp_componente FROM Composicion WHERE comp_producto = @current_component;
+
+            -- Si no hay más componentes, terminamos el bucle
+            IF @current_component IS NULL
+                BREAK;
+        END
+        FETCH NEXT FROM cur INTO @comp_producto, @comp_componente;
+    END
+    CLOSE cur;
+    DEALLOCATE cur;
+END
+GO
 
 ---------------------------------------------------13---------------------------------------------------
 
--- Cree el/los objetos de BD necesarios para implantar la siguiente regla “Ningún jefe puede tener un salario mayor al 20% de las suma de los salarios de sus empleados totales (directos + indirectos)”. 
+-- Cree el/los objetos de BD necesarios para implantar la siguiente regla:
+-- “Ningún jefe puede tener un salario mayor al 20% de las suma de los salarios de sus empleados totales (directos + indirectos)”. 
 -- Se sabe que en la actualidad dicha regla se cumple y que la BD es accedida por n aplicaciones de diferentes tipos y tecnologías
+
+CREATE TRIGGER VerificarSalarioJefe ON empleado FOR UPDATE, DELETE 
+AS
+BEGIN
+    IF ( SELECT count(*) FROM inserted i WHERE ( SELECT empl_salario FROM empleado WHERE empl_codigo = i.empl_jefe ) < dbo.CalcularSalarioTotal(i.empl_jefe) * 0.2 ) < 0
+        begin    
+            ROLLBACK
+            PRINT('El salario de la suma de los empeados no puede ser menor al 20% del salario del jefe')        
+        end    
+    
+    if ( SELECT count(*) FROM deleted d WHERE ( SELECT empl_salario FROM empleado WHERE empl_codigo = d.empl_jefe ) < dbo.CalcularSalarioTotal(i.empl_jefe) * 0.2 ) < 0
+        begin    
+            ROLLBACK
+            PRINT('El salario de la suma de los empeados no puede ser menor al 20% del salario del jefe')        
+        end    
+END
+GO
+
+CREATE FUNCTION CalcularSalarioTotal ( @Codigo INT )
+RETURNS DECIMAL(10, 2)
+AS
+BEGIN
+    RETURN ( SELECT isnull ( SUM( empl_salario ) + SUM( dbo.CalcularSalarioTotal( empl_codigo ) ), 0 ) FROM Empleado WHERE empl_jefe = @Codigo )
+END 
+GO
+
+---------------------------------------------------
+
+SELECT dbo.CalcularSalarioTotal(2)  
+GO
 
 ---------------------------------------------------14---------------------------------------------------
 
 -- Agregar el/los objetos necesarios para que si un cliente compra un producto compuesto a un precio menor que la suma de los precios de sus componentes que imprima la fecha, que cliente, que productos y a qué precio se realizó la compra. 
 -- No se deberá permitir que dicho precio sea menor a la mitad de la suma de los componentes.
+
+CREATE TRIGGER VerificacionPrecios ON Item_Factura INSTEAD OF INSERT
+AS
+BEGIN
+    DECLARE @item_producto char(8), @item_precio decimal(12,2), @item_cantidad decimal(12,2), @fact_fecha datetime, @fact_cliente char(4), @fact_tipo char(1), @fact_sucursal char(4), @fact_numero char(8)
+    
+    -- Declara un cursor con todos los productos que son compuestos con todos los datos que vamos a necesitar o que nos va a pedir mostrar
+    DECLARE cur CURSOR FOR SELECT item_producto, item_precio, item_cantidad, fact_fecha, fact_cliente, fact_tipo, fact_sucursal, fact_numero 
+						    FROM inserted
+						    JOIN factura ON fact_numero + fact_sucursal + fact_tipo = item_numero + item_sucursal + item_tipo
+						    WHERE item_producto IN ( SELECT comp_producto FROM Composicion) 
+    OPEN cur
+    FETCH NEXT FROM cur INTO @item_producto, @item_precio, @item_cantidad, @fact_fecha, @fact_cliente, @fact_tipo, @fact_sucursal, @fact_numero
+    WHILE @@FETCH_STATUS = 0
+	
+    BEGIN 	
+        -- No se deberá permitir que dicho precio sea menor a la mitad de la suma de los componentes
+        IF ( ( @item_precio * @item_cantidad ) > ( SELECT SUM ( comp_cantidad * prod_precio ) FROM composicion JOIN producto ON prod_codigo = comp_componente GROUP BY comp_producto ) / 2 )
+        BEGIN
+            PRINT('No se puede ingresar: ' + @item_producto )
+            FETCH NEXT FROM cur INTO @item_producto, @item_precio, @item_cantidad, @fact_fecha, @fact_cliente, @fact_tipo, @fact_sucursal, @fact_numero
+        END
+
+        -- Si un cliente compra un producto compuesto a un precio menor que la suma de los precios de sus componentes
+        IF ( ( @item_precio * @item_cantidad ) < ( SELECT SUM ( comp_cantidad * prod_precio ) FROM Composicion JOIN Producto ON comp_componente = prod_codigo GROUP BY comp_producto ) )
+            -- Imprima la fecha, que cliente, que productos y a qué precio se realizó la compra
+            PRINT(@fact_fecha + @fact_cliente + @item_producto + @item_precio)
+
+        INSERT item_factura( item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio )
+		VALUES( @fact_tipo, @fact_sucursal, @fact_numero, @item_producto, @item_cantidad, @item_precio )
+        FETCH NEXT FROM cur INTO @item_producto, @item_precio, @item_cantidad, @fact_fecha, @fact_cliente, @fact_tipo, @fact_sucursal, @fact_numero
+    END
+    CLOSE cur;
+    DEALLOCATE cur;
+END
+GO
 
 ---------------------------------------------------15---------------------------------------------------
 
