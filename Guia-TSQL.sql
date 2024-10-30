@@ -444,36 +444,60 @@ GO
 CREATE TRIGGER NoCompuestoPorSiMismo ON Composicion INSTEAD OF INSERT, UPDATE -- Utilizamos INSTEAD OF para evitar tener un porducto compuesto por si mismo
 AS
 BEGIN
-    DECLARE @comp_producto CHAR(8), @comp_componente CHAR(8)
+    DECLARE @comp_producto CHAR(8), @comp_componente CHAR(8);
 
-    DECLARE cur CURSOR FOR SELECT comp_producto, comp_componente FROM inserted
-    OPEN cur
+    DECLARE cur CURSOR FOR SELECT comp_producto, comp_componente FROM inserted;
+    OPEN cur;
     FETCH NEXT FROM cur INTO @comp_producto, @comp_componente;
     WHILE @@FETCH_STATUS = 0
     BEGIN
-        DECLARE @current_component CHAR(8) = @comp_componente
-
-        -- Bucle para recorrer la cadena de composición y buscar ciclos
-        WHILE @current_component IS NOT NULL
+        -- Usar la función para verificar si hay ciclo
+        IF dbo.ExisteCicloComposicion(@comp_producto, @comp_componente) = 1
         BEGIN
-            IF @current_component = @comp_producto
-            BEGIN
-                RAISERROR ('Error: Un producto no puede componerse a sí mismo.', 16, 1)
-                ROLLBACK
-            END
+            RAISERROR ('Error: Un producto no puede componerse a sí mismo ni en niveles sucesivos.', 16, 1);
+            ROLLBACK;
+            RETURN;
+        END;
 
-            ELSE -- Obtener el siguiente componente en la cadena
-                SELECT @current_component = comp_componente FROM Composicion WHERE comp_producto = @current_component;
-
-            -- Si no hay más componentes, terminamos el bucle
-            IF @current_component IS NULL
-                BREAK;
-        END
         FETCH NEXT FROM cur INTO @comp_producto, @comp_componente;
-    END
+    END;
+
     CLOSE cur;
     DEALLOCATE cur;
-END
+
+    -- Si todo está bien, realizar la inserción o actualización
+    INSERT INTO Composicion (comp_producto, comp_componente)
+    SELECT comp_producto, comp_componente FROM inserted;
+END;
+GO
+
+CREATE FUNCTION ExisteCicloComposicion ( @producto CHAR(8), @componente CHAR(8)) 
+RETURNS INT
+AS
+BEGIN
+    DECLARE @hayCiclo INT = 0;
+    -- Si el componente es el mismo producto, entonces hay ciclo
+    IF ( @producto = @componente ) 
+        SET @hayCiclo = 1;
+    ELSE
+    -- Recorrer la composición para ver si se llega al mismo producto
+    BEGIN 
+        DECLARE cur CURSOR LOCAL FOR SELECT comp_componente FROM Composicion WHERE comp_producto = @componente;
+        DECLARE @subComponente CHAR(8);
+        OPEN cur;
+        FETCH NEXT FROM cur INTO @subComponente;
+        WHILE @@FETCH_STATUS = 0 AND @hayCiclo = 0
+        -- Llamada recursiva a la función
+        BEGIN  
+            SET @hayCiclo = dbo.fn_ExisteCicloComposicion(@producto, @subComponente);
+            FETCH NEXT FROM cur INTO @subComponente;
+        END;
+        CLOSE cur;
+        DEALLOCATE cur;
+    END;
+
+    RETURN @hayCiclo;
+END;
 GO
 
 ---------------------------------------------------13---------------------------------------------------
@@ -561,12 +585,143 @@ GO
 -- Se asegura que nunca un producto esta compuesto por si mismo a ningun nivel. 
 -- El objeto principal debe poder ser utilizado como filtro en el where de una sentencia select.
 
+CREATE FUNCTION CalcularPrecioProducto (@producto CHAR(8))
+RETURNS DECIMAL(18, 2)
+AS
+BEGIN
+    DECLARE @precio DECIMAL(18, 2) = 0;
+    -- Compuesto
+    IF EXISTS ( SELECT 1 FROM Composicion WHERE comp_producto = @producto )
+    BEGIN
+        DECLARE @componente CHAR(8), @cantidad INT, @comp_precio DECIMAL(18, 2)
+        DECLARE cur CURSOR FOR SELECT comp_componente, comp_cantidad FROM Composicion WHERE comp_producto = @producto
+        OPEN cur
+        FETCH NEXT FROM cur INTO @componente, @cantidad
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            -- Llamada recursiva para obtener el precio del componente
+            SET @comp_precio = dbo.CalcularPrecioProducto ( @componente ) * @cantidad;
+            SET @precio += @comp_precio;
+            FETCH NEXT FROM cur INTO @componente, @cantidad;
+        END
+        CLOSE cur
+        DEALLOCATE cur
+    END 
+    -- Simple
+    ELSE
+        SELECT @precio = prod_precio FROM Producto WHERE @producto = prod_codigo;
+
+    RETURN @precio;
+END
+GO
+
+---------------------------------------------------
+
+SELECT dbo.CalcularPrecioProducto('00001104')  
+GO
+
 ---------------------------------------------------16---------------------------------------------------
 
 -- Desarrolle el/los elementos de BD necesarios para que ante una venta automaticamante se descuenten del stock los articulos vendidos. 
 -- Se descontaran del deposito que mas producto poseea y se supone que el stock se almacena tanto de productos simples como compuestos (si se acaba el stock de los compuestos no se arman combos)
 -- En caso que no alcance el stock de un deposito se descontara del siguiente y asi hasta agotar los depositos posibles. 
 -- En ultima instancia se dejara stock negativo en el ultimo deposito que se desconto.
+
+ALTER TRIGGER DescontarStockEnVenta ON Item_factura AFTER INSERT
+AS
+BEGIN
+    DECLARE @producto char(8), @cantidad decimal(12,2)
+    DECLARE C_P CURSOR FOR SELECT item_producto, item_cantidad FROM inserted
+    OPEN C_P
+    FETCH NEXT FROM C_P INTO @producto, @cantidad
+    WHILE @@FETCH_STATUS = 0
+    
+    -- Si es compuesto o no
+    BEGIN
+        IF EXISTS ( SELECT * FROM composicion WHERE comp_producto = @producto )
+            -- CON COMPONENTES
+            BEGIN
+                DECLARE @componente char(8), @cantidadDelComponenete decimal (12,2)
+                DECLARE C_PC CURSOR FOR SELECT comp_componente, ( comp_cantidad * @cantidad  ) FROM Composicion WHERE comp_producto = @producto 
+                OPEN C_PC
+                FETCH NEXT INTO @componente, @cantidadDelComponenete
+                WHILE @@FETCH_STATUS = 0
+
+                -- Descontar STOCK
+                BEGIN
+                    DECLARE @deposito CHAR(2), @depo_ant CHAR(2), @depo_cantidad DECIMAL (12,2)
+                    DECLARE c_deposito CURSOR FOR SELECT stoc_deposito, stoc_Cantidad FROM stock WHERE @componente = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
+                    OPEN c_deposito
+                    FETCH NEXT INTO @deposito, @depo_cantidad
+                    WHILE @@FETCH_STATUS = 0 and @cantidad > 0
+                    
+                    -- Bajar el stock de todos los depositos, hasta que concuerde con lo vendido
+                    BEGIN
+                        IF ( @depo_cantidad >= @cantidad ) -- Descuento completo del depósito actual
+                            BEGIN
+                                UPDATE stock SET stoc_cantidad = stoc_cantidad - @cantidad WHERE stoc_producto = @componente AND stoc_deposito = @deposito
+                                SELECT @cantidad = 0
+                            END
+
+                        ELSE -- Descontar el stock disponible y continuar con el siguiente depósito
+                            BEGIN 
+                                UPDATE stock SET stoc_cantidad = stoc_cantidad - @depo_cantidad WHERE stoc_producto = @componente AND stoc_deposito = @deposito
+                                SELECT @cantidad = @cantidad - @depo_cantidad
+                                SELECT @depo_ant = @deposito
+                            END
+
+                        FETCH NEXT FROM c_deposito INTO @deposito, @depo_cantidad
+                    END
+
+                    IF ( @cantidad > 0 ) -- Si aún queda cantidad pendiente, permitir stock negativo en el último depósito utilizado
+                        UPDATE Stock SET stoc_cantidad = stoc_cantidad - @depo_cantidad WHERE stoc_producto = @producto AND stoc_deposito = @depo_ant
+                    
+                    FETCH NEXT INTO @producto, @cantidad
+                END
+
+                CLOSE c_comp
+                DEALLOCATE c_comp
+            END
+		
+        ELSE
+            -- SIN COMPONENTES
+            -- Descontar STOCK
+            BEGIN
+                DECLARE c_deposito CURSOR FOR SELECT stoc_deposito, stoc_Cantidad FROM stock WHERE @producto = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
+                OPEN c_deposito
+                FETCH NEXT INTO @deposito, @depo_cantidad
+                WHILE @@FETCH_STATUS = 0 and @cantidad > 0
+                
+                -- Bajar el stock de todos los depositos, hasta que concuerde con lo vendido
+                BEGIN
+                    IF ( @depo_cantidad >= @cantidad ) -- Descuento completo del depósito actual
+                        BEGIN
+                            UPDATE stock SET stoc_cantidad = stoc_cantidad - @cantidad WHERE stoc_producto = @componente AND stoc_deposito = @deposito
+                            SELECT @cantidad = 0
+                        END
+
+                    ELSE -- Descontar el stock disponible y continuar con el siguiente depósito
+                        BEGIN 
+                            UPDATE stock SET stoc_cantidad = stoc_cantidad - @depo_cantidad WHERE stoc_producto = @componente AND stoc_deposito = @deposito
+                            SELECT @cantidad = @cantidad - @depo_cantidad
+                            SELECT @depo_ant = @deposito
+                        END
+
+                    FETCH NEXT FROM c_deposito INTO @deposito, @depo_cantidad
+                END
+
+                IF ( @cantidad > 0 ) -- Si aún queda cantidad pendiente, permitir stock negativo en el último depósito utilizado
+                    UPDATE Stock SET stoc_cantidad = stoc_cantidad - @depo_cantidad WHERE stoc_producto = @producto AND stoc_deposito = @depo_ant
+                    
+                FETCH NEXT INTO @producto, @cantidad
+                
+	        END
+
+    END
+	CLOSE C_P
+	DEALLOCATE C_P
+END
+GO
 
 ---------------------------------------------------17---------------------------------------------------
 ---------------------------------------------------18---------------------------------------------------
@@ -586,8 +741,7 @@ GO
 
 
 /*
-DECLARE Employee_Cursor CURSOR 
-FOR SELECT LastName, FirstName FROM Employees
+DECLARE Employee_Cursor CURSOR FOR SELECT LastName, FirstName FROM Employees
 
 OPEN Employee_Cursor
 

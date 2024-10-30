@@ -801,39 +801,24 @@ CREATE FUNCTION precioDeComponentes ( @ProductoID char(8) )
 RETURNS DECIMAL(12,2)
 AS
 BEGIN
-    DECLARE @PrecioTotal DECIMAL(12,2)
+    DECLARE @PrecioTotal DECIMAL(12,2) = 0
 
     -- Si no tenes componentes - Tu precio es lo que es
     IF NOT EXISTS ( SELECT * FROM composicion WHERE comp_producto = @ProductoID )
-        BEGIN
-            SELECT @PrecioTotal = prod_precio FROM producto WHERE prod_codigo = @ProductoID  
-            RETURN @PrecioTotal
-        END
+        RETURN ( SELECT @PrecioTotal = prod_precio FROM producto WHERE prod_codigo = @ProductoID  )
    
     -- Si tenes componentes - Tu precio es el de ellos
-    SELECT @PrecioTotal = 0
-
     DECLARE @comp char(8), @cantidad DECIMAL (12,2)
-
     DECLARE cl CURSOR FOR SELECT comp_componente, comp_cantidad, prod_precio FROM composicion JOIN producto ON comp_componente = prod_codigo
-
     OPEN cl;
-    
-   FETCH NEXT INTO @comp, @cantidad, @PrecioTotal;
-    
+    FETCH NEXT INTO @comp, @cantidad, @PrecioTotal;
     WHILE @@FETCH_STATUS = 0
-    
     BEGIN
         SELECT @PrecioTotal = @PrecioTotal + @cantidad * dbo.precioDeComponentes(@ProductoID);
-    
         FETCH NEXT INTO @comp, @cantidad, @PrecioTotal;
-    
     END;
-    
     CLOSE cl;
-    
     DEALLOCATE cl;
-    
     RETURN @PrecioTotal;
 END
 GO
@@ -848,7 +833,6 @@ GO
 CREATE TRIGGER articuloVendido ON Item_factura INSTEAD OF INSERT
 AS
 BEGIN
-
 -- 1. Me fijo si es compuestoo o no 
 -- 2. En base a eso veo como bajo la cantidad en STOCK
 
