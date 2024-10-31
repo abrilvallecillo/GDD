@@ -921,8 +921,8 @@ GO
 -- No se conoce la forma de acceso a los datos ni el procedimiento por el cual se incrementa o descuenta stock
 
 SELECT stoc_cantidad AS 'Lo que tengo', 
-stoc_punto_reposicion AS 'Lo minimo que tengo', 
-stoc_stock_maximo AS 'Lo maximo que tengo'
+        stoc_punto_reposicion AS 'Lo minimo que tengo', 
+        stoc_stock_maximo AS 'Lo maximo que tengo'
 FROM STOCK
 GO
 
@@ -943,10 +943,12 @@ BEGIN
 END
 GO
 
+---------------------------------------------------
+
 CREATE TRIGGER reposicion2 ON STOCK AFTER UPDATE, INSERT
 AS
 BEGIN
-    IF EXISTS (SELECT * FROM inserted i WHERE i.stoc_cantidad < i.stoc_punto_reposicion OR i.stoc_cantidad > i.stoc_stock_maximo)
+    IF EXISTS (SELECT * FROM inserted i WHERE ( i.stoc_cantidad < i.stoc_punto_reposicion ) OR ( i.stoc_cantidad > i.stoc_stock_maximo ) )
     BEGIN
         print 'Hay que controlar la cantidad de STOCK'
         ROLLBACK
@@ -988,7 +990,7 @@ GO
 -- "Ningún jefe puede tener menos de 5 años de antiguedad y tampoco puede tener más del 50% del personal a su cargo (contando directos e indirectos) a excepción del gerente general". 
 -- Se sabe que en la actualidad la regla se cumple y existe un único gerente general.
 
-CREATE TRIGGER ningunJefe ON Empleado FOR INSERT, UPDATE, DELETE 
+CREATE TRIGGER ningunJefe2 ON Empleado FOR INSERT, UPDATE, DELETE 
 AS
 -- Puede tener menos de 5 años de antiguedad y tampoco puede tener más del 50% del personal a su cargo
 BEGIN
@@ -1014,10 +1016,30 @@ BEGIN
     FETCH NEXT FROM c1 INTO @vendedor, @anio, @mes
     WHILE @@FETCH_STATUS = 0 
     BEGIN
-        UPDATE empleado SET empl_comision = ( SELECT SUM(fact_total)*0.05 FROM factura WHERE fact_vendedor = @vendedor AND YEAR ( fact_fecha ) = @anio AND MONTH ( fact_fecha ) = @mes ) WHERE empl_codigo = @vendedor
+        UPDATE empleado SET empl_comision = (
+                                                SELECT SUM(fact_total)*0.05 
+                                                FROM factura 
+                                                WHERE fact_vendedor = @vendedor 
+                                                AND YEAR ( fact_fecha ) = @anio 
+                                                AND MONTH ( fact_fecha ) = @mes 
+                                            ) WHERE empl_codigo = @vendedor
         
-        IF ( SELECT COUNT( distinct item_producto ) FROM factura JOIN item_factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero WHERE fact_vendedor = @vendedor AND year (fact_fecha) = @anio AND month (fact_fecha) = @mes ) >=50
-            UPDATE empleado SET empl_comision = ( SELECT SUM(fact_total)*1.03 FROM factura WHERE fact_vendedor = @vendedor AND YEAR ( fact_fecha ) = @anio AND MONTH ( fact_fecha ) = @mes ) WHERE empl_codigo = @vendedor
+        IF ( 
+                SELECT COUNT( distinct item_producto ) 
+                FROM factura 
+                JOIN item_factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+                WHERE fact_vendedor = @vendedor 
+                AND year (fact_fecha) = @anio 
+                AND month (fact_fecha) = @mes 
+            ) >=50
+
+            UPDATE empleado SET empl_comision = ( 
+                                                    SELECT SUM(fact_total)*1.03 
+                                                    FROM factura 
+                                                    WHERE fact_vendedor = @vendedor 
+                                                    AND YEAR ( fact_fecha ) = @anio 
+                                                    AND MONTH ( fact_fecha ) = @mes 
+                                                ) WHERE empl_codigo = @vendedor
 
         FETCH NEXT FROM c1 INTO @vendedor, @anio, @mes
     END

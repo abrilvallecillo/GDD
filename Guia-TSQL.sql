@@ -724,9 +724,123 @@ END
 GO
 
 ---------------------------------------------------17---------------------------------------------------
+
+-- Sabiendo que el punto de reposicion del stock es la menor cantidad de ese objeto que se debe almacenar en el deposito y que el stock maximo es la maxima 
+-- cantidad de ese producto en ese deposito, cree el/los objetos de base de datos necesarios para que dicha regla de negocio se cumpla automaticamente. 
+-- No se conoce la forma de acceso a los datos ni el procedimiento por el cual se incrementa o descuenta stock
+
+CREATE TRIGGER puntoDeReposicion ON STOCK AFTER UPDATE, INSERT
+AS
+BEGIN    
+    IF EXISTS ( SELECT * FROM STOCK WHERE ( stoc_punto_reposicion > stoc_cantidad ) OR ( stoc_cantidad > stoc_stock_maximo ) )
+        PRINT ( ' Controlar el STOCK ')
+END
+GO
 ---------------------------------------------------18---------------------------------------------------
+
+-- Sabiendo que el limite de credito de un cliente es el monto maximo que se le puede facturar mensualmente, cree el/los objetos de base de datos necesarios 
+-- para que dicha regla de negocio se cumpla automaticamente. 
+-- No se conoce la forma de acceso a los datos ni el procedimiento por el cual se emiten las facturas
+
+CREATE TRIGGER creditoCliente ON Factura AFTER UPDATE, INSERT
+AS
+BEGIN    
+    DECLARE @cliente CHAR(4), @anio NUMERIC(4), @mes NUMERIC(2), @totalMensual DECIMAL(12,2)
+    DECLARE C_CC CURSOR FOR SELECT fact_cliente, YEAR(fact_fecha), MONTH(fact_fecha), SUM(fact_total) FROM inserted GROUP BY fact_cliente, YEAR(fact_fecha), MONTH(fact_fecha)
+    OPEN C_CC
+    FETCH NEXT FROM C_CC INTO @cliente, @anio, @mes, @totalMensual
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        IF ( ( SELECT clie_limite_credito FROM Cliente WHERE clie_codigo = @cliente) < @totalMensual )
+            PRINT ( 'No supereo el monto maximo que se le puede facturar mensualmente' )
+        ELSE
+            BEGIN
+                PRINT ( 'Se supereo el monto maximo que se le puede facturar mensualmente' )
+                CLOSE C_CC
+                DEALLOCATE C_CC
+                ROLLBACK
+            END
+        FETCH NEXT FROM C_CC INTO @cliente, @anio, @mes, @totalMensual
+    END
+    CLOSE C_CC
+	DEALLOCATE C_CC
+END
+GO
+
 ---------------------------------------------------19---------------------------------------------------
+
+-- Cree el/los objetos de base de datos necesarios para que se cumpla la siguiente regla de negocio automáticamente 
+-- “Ningún jefe puede tener menos de 5 años de antigüedad y tampoco puede tener más del 50% del personal a su cargo (contando directos e indirectos) a excepción del gerente general”. 
+-- Se sabe que en la actualidad la regla se cumple y existe un único gerente general.
+
+CREATE TRIGGER nungunJefe ON Empleado AFTER UPDATE, INSERT, DELETE
+AS
+BEGIN
+    IF EXISTS ( 
+                SELECT * 
+                FROM inserted i 
+                JOIN empleado e ON e.empl_codigo = i.empl_jefe 
+                WHERE e.empl_ingreso > ( GETDATE() - 365*5 ) 
+                AND dbo.ej11(i.empl_jefe) > ( SELECT COUNT(empl_codigo)/2 FROM empleado )    
+            )
+        ROLLBACK    
+    
+    IF EXISTS ( 
+                SELECT * 
+                FROM inserted i 
+                WHERE dbo.ej11(i.empl_jefe) > ( SELECT COUNT(empl_codigo)/2 FROM empleado ) 
+            )
+        ROLLBACK 
+END
+GO
+
 ---------------------------------------------------20---------------------------------------------------
+
+-- Crear el/los objeto/s necesarios para mantener actualizadas las comisiones del vendedor.
+-- El cálculo de la comisión está dado por el 5% de la venta total efectuada por ese vendedor en ese mes,
+-- más un 3% adicional en caso de que ese vendedor haya vendido por lo menos 50 productos distintos en el mes.
+
+CREATE TRIGGER comisionesActualizadas ON Factura FOR INSERT, DELETE
+AS
+BEGIN
+    DECLARE @vendedor numeric (6), @anio numeric(4), @mes numeric (2)
+    DECLARE C_F CURSOR FOR SELECT fact_vendedor, YEAR(fact_fecha), MONTH(fact_fecha) FROM inserted
+    OPEN C_F
+    FETCH NEXT FROM C_F
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        UPDATE empleado SET empl_comision = (
+                                                SELECT SUM(fact_total) * 0.05 
+                                                FROM Factura 
+                                                WHERE fact_vendedor = @vendedor 
+                                                AND YEAR ( fact_fecha ) = @anio 
+                                                AND MONTH ( fact_fecha ) = @mes 
+                                            ) WHERE empl_codigo = @vendedor
+        
+        IF ( -- Vendio mas de 50 prodcutos distintos ese mes
+                SELECT COUNT( DISTINCT item_producto ) 
+                FROM Factura 
+                JOIN Item_factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+                WHERE fact_vendedor = @vendedor 
+                AND YEAR ( fact_fecha ) = @anio 
+                AND MONTH ( fact_fecha ) = @mes 
+            ) >=50
+
+            UPDATE empleado SET empl_comision = ( 
+                                                    SELECT SUM(fact_total) * 1.03 -- Agrego el 3%
+                                                    FROM factura 
+                                                    WHERE fact_vendedor = @vendedor 
+                                                    AND YEAR ( fact_fecha ) = @anio 
+                                                    AND MONTH ( fact_fecha ) = @mes 
+                                                ) WHERE empl_codigo = @vendedor
+
+        FETCH NEXT FROM C_F
+    END
+    CLOSE C_F
+    DEALLOCATE C_F
+END
+GO
+
 ---------------------------------------------------21---------------------------------------------------
 ---------------------------------------------------22---------------------------------------------------
 ---------------------------------------------------23---------------------------------------------------
@@ -742,16 +856,12 @@ GO
 
 /*
 DECLARE Employee_Cursor CURSOR FOR SELECT LastName, FirstName FROM Employees
-
 OPEN Employee_Cursor
-
 FETCH NEXT FROM Employee_Cursor
 WHILE @@FETCH_STATUS = 0
 BEGIN
     FETCH NEXT FROM Employee_Cursor
 END
-
 CLOSE Employee_Cursor
-
 DEALLOCATE Employee_Cursor
 */
