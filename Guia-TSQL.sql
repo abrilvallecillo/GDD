@@ -726,7 +726,7 @@ GO
 ---------------------------------------------------17---------------------------------------------------
 
 -- Sabiendo que el punto de reposicion del stock es la menor cantidad de ese objeto que se debe almacenar en el deposito y que el stock maximo es la maxima 
--- cantidad de ese producto en ese deposito, cree el/los objetos de base de datos necesarios para que dicha regla de negocio se cumpla automaticamente. 
+-- cantidad de ese producto en ese deposito, cree el/los objetos de BD necesarios para que dicha regla de negocio se cumpla automaticamente. 
 -- No se conoce la forma de acceso a los datos ni el procedimiento por el cual se incrementa o descuenta stock
 
 CREATE TRIGGER puntoDeReposicion ON STOCK AFTER UPDATE, INSERT
@@ -738,7 +738,7 @@ END
 GO
 ---------------------------------------------------18---------------------------------------------------
 
--- Sabiendo que el limite de credito de un cliente es el monto maximo que se le puede facturar mensualmente, cree el/los objetos de base de datos necesarios 
+-- Sabiendo que el limite de credito de un cliente es el monto maximo que se le puede facturar mensualmente, cree el/los objetos de BD necesarios 
 -- para que dicha regla de negocio se cumpla automaticamente. 
 -- No se conoce la forma de acceso a los datos ni el procedimiento por el cual se emiten las facturas
 
@@ -769,7 +769,7 @@ GO
 
 ---------------------------------------------------19---------------------------------------------------
 
--- Cree el/los objetos de base de datos necesarios para que se cumpla la siguiente regla de negocio automáticamente 
+-- Cree el/los objetos de BD necesarios para que se cumpla la siguiente regla de negocio automáticamente 
 -- “Ningún jefe puede tener menos de 5 años de antigüedad y tampoco puede tener más del 50% del personal a su cargo (contando directos e indirectos) a excepción del gerente general”. 
 -- Se sabe que en la actualidad la regla se cumple y existe un único gerente general.
 
@@ -842,16 +842,94 @@ END
 GO
 
 ---------------------------------------------------21---------------------------------------------------
+
+-- Desarrolle el/los elementos de BD necesarios para que se cumpla automaticamente la regla de que en una factura no puede contener productos de diferentes familias. 
+-- En caso de que esto ocurra no debe grabarse esa factura y debe emitirse un error en pantalla.
+
+CREATE TRIGGER VerificarFamiliaFactura ON Factura AFTER INSERT -- Utilizamos INSTEAD OF para evitar tener una factura con productos diferentes
+AS
+BEGIN
+    IF EXISTS (
+        SELECT fact_numero+fact_sucursal+fact_tipo , COUNT ( DISTINCT prod_familia ) 
+        FROM inserted
+        JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+        JOIN Producto ON item_producto = prod_codigo
+        GROUP BY fact_tipo, fact_sucursal, fact_numero
+        HAVING COUNT( DISTINCT prod_familia) <> 1 -- Mas de una familia
+    )
+    BEGIN
+        RAISERROR ('Error: La factura contiene productos de diferentes familias. No se permite la grabación.', 16, 1)
+        ROLLBACK
+    END
+END
+GO
+
 ---------------------------------------------------22---------------------------------------------------
+
+-- Se requiere recategorizar los rubros de productos, de forma tal que nigun rubro tenga más de 20 productos asignados, si un rubro tiene más de 
+-- 20 productos asignados se deberan distribuir en otros rubros que no tengan mas de 20 productos y si no entran se debra crear un nuevo rubro en la misma 
+-- familia con la descirpción “RUBRO REASIGNADO”, cree el/los objetos de base de datos necesarios para que dicha regla de negocio quede implementada.
+
 ---------------------------------------------------23---------------------------------------------------
+
+-- Desarrolle el/los elementos de base de datos necesarios para que ante una venta automaticamante se controle que en una misma factura no puedan venderse 
+-- más de dos productos con composición. 
+-- Si esto ocurre de bera rechazarse la factura.
+
 ---------------------------------------------------24---------------------------------------------------
+
+--  Se requiere recategorizar los encargados asignados a los depositos. 
+-- Para ello cree el o los objetos de bases de datos necesarios que lo resueva, teniendo en cuenta que un deposito no puede tener como encargado un 
+-- empleado que pertenezca a un departamento que no sea de la misma zona que el deposito, si esto ocurre a dicho deposito debera asignársele el empleado 
+-- con menos depositos asignados que pertenezca a un departamento de esa zona.
+
 ---------------------------------------------------25---------------------------------------------------
+
+--  Desarrolle el/los elementos de base de datos necesarios para que no se permita que la composición de los productos sea recursiva, o sea, que si el 
+-- producto A compone al producto B, dicho producto B no pueda ser compuesto por el producto A, hoy la regla se cumple.
+
 ---------------------------------------------------26---------------------------------------------------
+
+-- Desarrolle el/los elementos de base de datos necesarios para que se cumpla automaticamente la regla de que una factura no puede contener productos 
+-- que sean componentes de otros productos. 
+-- En caso de que esto ocurra no debe grabarse esa factura y debe emitirse un error en pantalla.
+
 ---------------------------------------------------27---------------------------------------------------
+
+-- Se requiere reasignar los encargados de stock de los diferentes depósitos. 
+-- Para ello se solicita que realice el o los objetos de base de datos necesarios para asignar a cada uno de los depósitos el encargado que le corresponda, 
+-- entendiendo que el encargado que le corresponde es cualquier empleado que no es jefe y que no es vendedor, o sea, que no está asignado a ningun cliente, 
+-- se deberán ir asignando tratando de que un empleado solo tenga un deposito asignado, en caso de no poder se irán aumentando la cantidad de depósitos
+-- progresivamente para cada empleado.
+
 ---------------------------------------------------28---------------------------------------------------
+
+-- Se requiere reasignar los vendedores a los clientes. 
+-- Para ello se solicita que realice el o los objetos de base de datos necesarios para asignar a cada uno de los clientes el vendedor que le corresponda, 
+-- entendiendo que el vendedor que le corresponde es aquel que le vendió más facturas a ese cliente, si en particular un cliente no tiene facturas compradas 
+-- se le deberá asignar el vendedor con más venta de la empresa, o sea, el que en monto haya vendido más.
+
 ---------------------------------------------------29---------------------------------------------------
+
+-- Desarrolle el/los elementos de base de datos necesarios para que se cumpla automaticamente la regla de que una factura no puede contener productos que 
+-- sean componentes de diferentes productos. 
+-- En caso de que esto ocurra no debe grabarse esa factura y debe emitirse un error en pantalla.
+
 ---------------------------------------------------30---------------------------------------------------
+
+-- Agregar el/los objetos necesarios para crear una regla por la cual un cliente no pueda comprar más de 100 unidades en el mes de ningún producto, 
+-- si esto ocurre no se deberá ingresar la operación y se deberá emitir un mensaje “Se ha superado el límite máximo de compra de un producto”. 
+-- Se sabe que esta regla se cumple y que las facturas no pueden ser modificadas.
+
 ---------------------------------------------------31---------------------------------------------------
+
+-- Desarrolle el o los objetos de base de datos necesarios, para que un jefe no pueda tener más de 20 empleados a cargo, directa o indirectamente, 
+-- si esto ocurre debera asignarsele un jefe que cumpla esa condición, si no existe un jefe para asignarle se le deberá colocar como jefe al gerente 
+-- general que es aquel que no tiene jefe.
+
+
+
+
 
 
 /*
