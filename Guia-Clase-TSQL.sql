@@ -597,8 +597,9 @@ BEGIN
     OPEN C1
     FETCH NEXT FROM C1 INTO @COMP
     WHILE @@FETCH_STATUS = 0
+   
     BEGIN 
-        IF dbo.COMPONE ( @PRODUCTO, @COMP ) = 1
+        IF ( dbo.COMPONE ( @PRODUCTO, @COMP ) = 1 )
         BEGIN
             CLOSE C1
             DEALLOCATE C1
@@ -606,9 +607,11 @@ BEGIN
         END
         FETCH NEXT FROM C1 INTO @COMP
     END
+
     CLOSE C1
     DEALLOCATE C1
     RETURN 0
+
 END
 GO
 
@@ -619,21 +622,26 @@ returns int
 as 
 BEGIN
     DECLARE @ret int, @comp char(8) 
-    if @producto = @componente
+   
+    if ( @producto = @componente )
         SELECT @ret = 1
+   
     ELSE
         begin
             DECLARE cur_comp CURSOR for SELECT comp_componente FROM composicion WHERE comp_producto = @producto
             open cur_comp
             fetch cur_comp into @comp
             while @@FETCH_STATUS = 0 AND @ret = 0
+            
             begin 
                 SELECT @ret = dbo.ej1q2(@producto, @comp)
                 fetch cur_comp into @comp
             END
+            
             close cur_comp
             deallocate cur_comp
         end
+
     return @ret
 END
 go 
@@ -645,10 +653,10 @@ RETURNS INT
 AS 
 BEGIN
     DECLARE @ret int = 0
-    if @producto = @componente
+    if ( @producto = @componente )
         SELECT @ret = 1
     ELSE
-        SELECT @ret = MAX(dbo.eje12(@producto, comp_componente)) FROM Composicion WHERE comp_producto = @componente
+        SELECT @ret = MAX ( dbo.eje12 ( @producto, @componente ) ) FROM Composicion WHERE comp_producto = @componente
     return @ret
 END
 GO
@@ -729,7 +737,7 @@ BEGIN
             PRINT('El salario de la suma de los empeados no puede ser menor al 20% del salario del jefe')        
         end    
     
-    if (SELECT count(*) FROM deleted i WHERE (SELECT empl_salario FROM empleado WHERE empl_codigo = i.empl_jefe) < dbo.ejer13(i.empl_jefe) * 0.2 ) < 0
+    if ( SELECT count(*) FROM deleted i WHERE (SELECT empl_salario FROM empleado WHERE empl_codigo = i.empl_jefe) < dbo.ejer13(i.empl_jefe) * 0.2 ) < 0
         begin    
             ROLLBACK
             PRINT('El salario de la suma de los empeados no puede ser menor al 20% del salario del jefe')        
@@ -741,8 +749,7 @@ CREATE FUNCTION ejer13 (@codigo NUMERIC(6))
 RETURNS INT
 AS 
 BEGIN
-    DECLARE @ret numeric(12,2)
-    return (SELECT sum(empl_salario)+dbo.ejer13(empl_codigo) FROM Empleado WHERE empl_jefe = @codigo)
+    RETURN ( SELECT sum(empl_salario) + dbo.ejer13(empl_codigo) FROM Empleado WHERE empl_jefe = @codigo )
 END
 GO
 
