@@ -19,7 +19,7 @@ BEGIN
     SELECT @stoc_cantidad = STOCK.stoc_cantidad, -- Asigno una fila a la variable
             @stock_maximo = STOCK.stoc_stock_maximo 
             FROM STOCK 
-            WHERE STOCK.stoc_producto = @articulo and STOCK.stoc_deposito = @deposito
+            WHERE STOCK.stoc_producto = @articulo AND STOCK.stoc_deposito = @deposito
 
     IF @stock_maximo IS NULL OR @stoc_cantidad >= @stock_maximo
         SET @respuesta =  'DEPOSITO COMPLETO'
@@ -49,7 +49,7 @@ RETURN (
         CASE WHEN  STOCK.stoc_stock_maximo IS NULL OR STOCK.stoc_cantidad >=  STOCK.stoc_stock_maximo THEN 'DEPOSITO COMPLETO'
         ELSE 'OCUPACION DEL DEPOSITO' +  STOCK.stoc_deposito + str( STOCK.stoc_cantidad /  STOCK.stoc_stock_maximo * 100) + ' %'
         END
-    From STOCK where STOCK.stoc_producto = @articulo and  STOCK.stoc_deposito = @deposito
+    FROM STOCK WHERE STOCK.stoc_producto = @articulo AND  STOCK.stoc_deposito = @deposito
     )
 END
 GO
@@ -95,7 +95,7 @@ GO
 
 ---------------------------------------------------
 
-CREATE PROCEDURE GerenteGeneralCursor @cantidad INT OUTPUT
+CREATE PROCEDURE GerenteGeneralCURSOR @cantidad INT OUTPUT
 AS
 BEGIN
     DECLARE @GerenteGeneral NUMERIC(6)
@@ -104,35 +104,35 @@ BEGIN
     -- El que tiene el salario mas alto y mayor antigüedad
     SELECT TOP 1 @GerenteGeneral = empl_codigo FROM Empleado WHERE empl_jefe IS NULL ORDER BY empl_salario DESC, empl_ingreso ASC 
 
-    -- Crea el cursor que va a traer los empleados que tengo que modificar
-    DECLARE GerenteGeneralCursor CURSOR 
+    -- Crea el CURSOR que va a traer los empleados que tengo que modificar
+    DECLARE GerenteGeneralCURSOR CURSOR 
     FOR SELECT empl_codigo FROM Empleado WHERE empl_jefe IS NULL AND empl_codigo <> @GerenteGeneral
 
     -- Lo abre
-    OPEN GerenteGeneralCursor
+    OPEN GerenteGeneralCURSOR
 
     -- Lo ejecuta
-    FETCH GerenteGeneralCursor INTO @empleado
+    FETCH GerenteGeneralCURSOR INTO @empleado
     WHILE @@FETCH_STATUS = 0
     BEGIN
          -- Actualizar los empleados
         UPDATE Empleado SET empl_jefe = @GerenteGeneral WHERE empl_jefe = @empleado
 
-        FETCH GerenteGeneralCursor INTO @empleado
+        FETCH GerenteGeneralCURSOR INTO @empleado
     END
 
     -- Lo cierra
-    CLOSE GerenteGeneralCursor
+    CLOSE GerenteGeneralCURSOR
 
     -- Lo destruye
-    DEALLOCATE GerenteGeneralCursor
+    DEALLOCATE GerenteGeneralCURSOR
 
     RETURN
 END
 GO
 
 BEGIN
-    DECLARE @cant INT EXEC dbo.GerenteGeneralCursor @cant
+    DECLARE @cant INT EXEC dbo.GerenteGeneralCURSOR @cant
     PRINT @cant
 END
 GO
@@ -147,13 +147,13 @@ AS
 BEGIN
     update Empleado 
     set empl_comision = (
-                        select isnull ( sum ( fact_total ) , 0 ) 
-                        from factura 
-                        where fact_vendedor = empl_codigo 
-                        AND year ( fact_fecha ) = ( select max ( year ( fact_fecha ) ) from factura ) 
+                        SELECT isnull ( sum ( fact_total ) , 0 ) 
+                        FROM factura 
+                        WHERE fact_vendedor = empl_codigo 
+                        AND year ( fact_fecha ) = ( SELECT max ( year ( fact_fecha ) ) FROM factura ) 
                         )
     
-    select TOP 1 @vendedor = empl_codigo from empleado order by empl_comision desc
+    SELECT TOP 1 @vendedor = empl_codigo FROM empleado order by empl_comision desc
     
     
     RETURN
@@ -164,7 +164,7 @@ update empleado set empl_comision = 0
 
 exec dbo.ej4 1
 
-select * from empleado order by empl_comision desc 
+SELECT * FROM empleado order by empl_comision desc 
 go 
 
 ---------------------------------------------------5---------------------------------------------------
@@ -213,15 +213,76 @@ BEGIN
                 prod_codigo, 
                 sum(item_cantidad), 
                 sum(item_precio * item_cantidad)
-    from item_factura 
-    join factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
-    join Producto on prod_codigo = item_producto 
-    join Empleado on empl_codigo = fact_vendedor 
-    join Departamento on depa_codigo = empl_departamento
-    group by year(fact_fecha), month(fact_fecha), prod_familia, prod_rubro, depa_zona, fact_cliente, prod_codigo
+    FROM item_factura 
+    JOIN factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+    JOIN Producto on prod_codigo = item_producto 
+    JOIN Empleado on empl_codigo = fact_vendedor 
+    JOIN Departamento on depa_codigo = empl_departamento
+    GROUP BY year(fact_fecha), month(fact_fecha), prod_familia, prod_rubro, depa_zona, fact_cliente, prod_codigo
 RETURN
 END
 GO
+
+---------------------------------------------------6---------------------------------------------------
+
+create PROCEDURE SP_UNIFICAR_PRODUCTO
+AS
+BEGIN
+	DECLARE @combo char(8), @combocantidad integer -- COMBOS
+    DECLARE @fact_tipo char(1), @fact_suc char(4), @fact_nro char(8) -- FACTURAS
+    
+    -- CURSOR PARA RECORRER LAS FACTURAS
+	DECLARE cFacturas CURSOR FOR SELECT fact_tipo, fact_sucursal, fact_numero FROM Factura
+	OPEN cFacturas
+	FETCH NEXT FROM cFacturas into @fact_tipo, @fact_suc, @fact_nro
+	WHILE @@FETCH_STATUS = 0
+	
+    -- ACA NECESITAMOS UN CURSOR PORQUE PUEDE HABER MAS DE UN COMBO EN UNA FACTURA	
+    BEGIN	
+		DECLARE cProducto CURSOR FOR ( 
+                                        SELECT comp_producto -- Me trae todos los combos que yo puedo armar con esta factura
+                                        FROM Item_Factura 
+                                        JOIN Composicion C1 on ( item_producto = C1.comp_componente ) 
+                                        WHERE item_cantidad >= C1.comp_cantidad AND item_sucursal = @fact_suc AND item_numero = @fact_nro AND item_tipo = @fact_tipo
+                                        GROUP BY C1.comp_producto
+                                        HAVING COUNT(*) = ( SELECT COUNT(*) FROM Composicion as C2 WHERE C2.comp_producto= C1.comp_producto ) -- Me fijo tener todos los componentes
+                                    )
+		OPEN cProducto
+		FETCH NEXT FROM cProducto into @combo
+		WHILE @@FETCH_STATUS = 0 
+
+        --SACAMOS CUANTOS COMBOS PUEDO ARMAR COMO MÁXIMO (POR ESO EL MIN)
+		BEGIN		
+			SELECT @combocantidad = MIN ( FLOOR ( ( item_cantidad / c1.comp_cantidad ) ) )
+			FROM Item_Factura 
+            JOIN Composicion C1 on (item_producto = C1.comp_componente)
+			WHERE item_cantidad >= C1.comp_cantidad AND item_sucursal = @fact_suc AND item_numero = @fact_nro AND item_tipo = @fact_tipo AND c1.comp_producto = @combo	
+				
+			--INSERTAMOS LA FILA DEL COMBO CON EL PRECIO QUE CORRESPONDE
+			INSERT INTO Item_Factura ( item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio )
+			
+            SELECT @fact_tipo, @fact_suc, @fact_nro, @combo, @combocantidad, ( @combocantidad * (SELECT prod_precio FROM Producto WHERE prod_codigo = @combo) )
+			
+            UPDATE Item_Factura 
+                SET item_cantidad = i1.item_cantidad - ( @combocantidad * ( SELECT comp_cantidad FROM Composicion WHERE i1.item_producto = comp_componente AND comp_producto = @combo ) ),
+                    item_precio = ( i1.item_cantidad - ( @combocantidad * ( SELECT comp_cantidad FROM Composicion WHERE i1.item_producto = comp_componente AND comp_producto = @combo ) ) ) * ( SELECT prod_precio FROM Producto WHERE prod_codigo = I1.item_producto )											  															  
+                FROM Item_Factura I1, Composicion C1 
+                WHERE I1.item_sucursal = @fact_suc AND I1.item_numero = @fact_nro AND I1.item_tipo = @fact_tipo AND I1.item_producto = C1.comp_componente AND C1.comp_producto = @combo
+			
+            DELETE FROM Item_Factura WHERE item_sucursal = @fact_suc AND item_numero = @fact_nro AND item_tipo = @fact_tipo AND item_cantidad = 0 
+			
+            FETCH NEXT FROM cproducto into @combo
+
+    	END
+		CLOSE cProducto;
+		DEALLOCATE cProducto;
+			
+	    FETCH NEXT FROM cFacturas into @fact_tipo, @fact_suc, @fact_nro
+	END
+	CLOSE cFacturas;
+	DEALLOCATE cFacturas;
+END 
+GO 
 
 ---------------------------------------------------7---------------------------------------------------
 
@@ -261,7 +322,7 @@ BEGIN
             @renglon int, 
             @ganancia NUMERIC(12,2)
 
-    -- Definición del cursor para iterar sobre los productos y sus ventas
+    -- Definición del CURSOR para iterar sobre los productos y sus ventas
     DECLARE cventas CURSOR FOR 
     SELECT prod_codigo, 
            prod_detalle, 
@@ -272,17 +333,17 @@ BEGIN
     JOIN Item_Factura ON item_producto = prod_codigo
     GROUP BY prod_codigo, prod_detalle
 
-    -- Abrir el cursor
+    -- Abrir el CURSOR
     OPEN cventas
 
     -- Inicializar el contador de renglones
     SELECT @renglon = 1
 
-    -- Obtener la primera fila del cursor
+    -- Obtener la primera fila del CURSOR
     FETCH NEXT FROM cventas 
     INTO @articulo, @detalle, @cant_movimientos, @precio_venta, @ganancia
 
-    -- Bucle para recorrer el cursor
+    -- Bucle para recorrer el CURSOR
     WHILE @@FETCH_STATUS = 0
     BEGIN
         -- Insertar los valores en la tabla Ventas
@@ -298,7 +359,7 @@ BEGIN
         -- Incrementar el número de renglón
         SELECT @renglon = @renglon + 1;
 
-        -- Obtener la siguiente fila del cursor
+        -- Obtener la siguiente fila del CURSOR
         FETCH NEXT FROM cventas 
         INTO @articulo, 
              @detalle, 
@@ -307,7 +368,7 @@ BEGIN
              @ganancia
     END
 
-    -- Cerrar y desasignar el cursor
+    -- Cerrar y desasignar el CURSOR
     CLOSE cventas
     DEALLOCATE cventas
 
@@ -322,29 +383,29 @@ GO
 create trigger ej9 on item_factura FOR INSERT, DELETE
 AS
 BEGIN
-    declare @producto char(8), @cantidad numeric(12,2), @deposito char(2)
+    DECLARE @producto char(8), @cantidad numeric(12,2), @deposito char(2)
 
     -- Caso INSERT
-    declare cinsert cursor for select comp_componente, comp_cantidad*item_cantidad  from inserted join composicion on item_producto = comp_producto 
+    DECLARE cinsert CURSOR for SELECT comp_componente, comp_cantidad*item_cantidad  FROM inserted JOIN composicion on item_producto = comp_producto 
     open cinsert
     fetch cinsert into @producto, @cantidad
     while @@FETCH_STATUS = 0
     BEGIN
-        select top 1 @deposito = stoc_deposito from stock where stoc_producto = @producto order by stoc_cantidad desc
-        update stock set stoc_cantidad = stoc_Cantidad - @cantidad where stoc_producto = @producto and stoc_deposito = @deposito
+        SELECT top 1 @deposito = stoc_deposito FROM stock WHERE stoc_producto = @producto order by stoc_cantidad desc
+        update stock set stoc_cantidad = stoc_Cantidad - @cantidad WHERE stoc_producto = @producto AND stoc_deposito = @deposito
         fetch cinsert into @producto, @cantidad
     END
     close cinsert
     DEALLOCATE cinsert 
 
     -- Caso DELETE
-    declare cdelete cursor for select comp_componente, comp_cantidad*item_cantidad  from deleted join composicion on item_producto = comp_producto   
+    DECLARE cdelete CURSOR for SELECT comp_componente, comp_cantidad*item_cantidad  FROM deleted JOIN composicion on item_producto = comp_producto   
     open cdelete
     fetch cdelete into @producto, @cantidad
     while @@FETCH_STATUS = 0
     BEGIN
-        select top 1 @deposito = stoc_deposito from stock where stoc_producto = @producto order by stoc_cantidad
-        update stock set stoc_cantidad = stoc_Cantidad + @cantidad where stoc_producto = @producto and stoc_deposito = @deposito
+        SELECT top 1 @deposito = stoc_deposito FROM stock WHERE stoc_producto = @producto order by stoc_cantidad
+        update stock set stoc_cantidad = stoc_Cantidad + @cantidad WHERE stoc_producto = @producto AND stoc_deposito = @deposito
         fetch cdelete into @producto, @cantidad
     END
     close cdelete
@@ -355,25 +416,23 @@ GO
 
 -- Crear el/los objetos de base de datos que ante el intento de borrar un artículo verifique que no exista stock y si es así lo borre en caso contrario que emita un mensaje de error.
 
--- AFTER --> Si habia alguno con stock --> NO BORRA NINGUNO
-
-create trigger ej10 on producto after delete
+create trigger ej10 on producto after delete --> Evalua todos los artuculos juntos
 AS
 begin
-    if (select count (*) from deleted join stock on stoc_producto = prod_codigo where stoc_cantidad > 0) > 0
+    if (SELECT count (*) FROM deleted JOIN stock on stoc_producto = prod_codigo WHERE stoc_cantidad > 0) > 0
     BEGIN
-        ROLLBACK
+        ROLLBACK --> Si habia alguno con stock --> NO BORRA NINGUNO
         RAISERROR( 'NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK', 16, 1)
     END
 END
 GO
 
-create trigger ej10 on producto INSTEAD of delete
+create trigger ej10 on producto INSTEAD of delete --> Va evaluANDo articulo por articulo
 AS
 begin
-    if (select count (*) from deleted join stock on stoc_producto = prod_codigo where stoc_cantidad > 0) > 0
+    if (SELECT count (*) FROM deleted JOIN stock on stoc_producto = prod_codigo WHERE stoc_cantidad > 0) > 0
     BEGIN
-        ROLLBACK
+        ROLLBACK --> BORRA SOLO LOS QUE TIENEN STOCK
         RAISERROR( 'NO SE PUEDEN BORRAR LOS PRODUCTOS CON STOCK', 16, 1)
     END
 END
@@ -386,8 +445,15 @@ GO
 create trigger ej10 on producto INSTEAD OF delete 
 AS
 begin 
-    DELETE FROM PRODUCTO WHERE PROD_CODIGO IN (select PROD_CODIGO from deleted WHERE PROD_CODIGO NOT IN 
-    (SELECT DISTINCT STOC_PRODUCTO FROM STOCK where stoc_cantidad > 0))
+    DELETE FROM PRODUCTO WHERE PROD_CODIGO IN (
+                                                SELECT PROD_CODIGO 
+                                                FROM deleted 
+                                                WHERE PROD_CODIGO NOT IN (
+                                                                            SELECT DISTINCT STOC_PRODUCTO 
+                                                                            FROM STOCK 
+                                                                            WHERE stoc_cantidad > 0
+                                                                        )
+                                            )
 END
 GO 
 
@@ -400,15 +466,15 @@ AS
 begin 
     DECLARE @PRODUCTO CHAR(8)
     DELETE FROM PRODUCTO WHERE PROD_CODIGO IN (
-                                                select PROD_CODIGO 
-                                                from deleted 
+                                                SELECT PROD_CODIGO 
+                                                FROM deleted 
                                                 WHERE PROD_CODIGO NOT IN (
                                                                             SELECT DISTINCT STOC_PRODUCTO 
                                                                             FROM STOCK 
-                                                                            where stoc_cantidad > 0
+                                                                            WHERE stoc_cantidad > 0
                                                                         )
                                                 )
-    DECLARE C1 CURSOR FOR select DISTINCT STOC_PRODUCTO from deleted join stock on stoc_producto = prod_codigo where stoc_cantidad > 0
+    DECLARE C1 CURSOR FOR SELECT DISTINCT STOC_PRODUCTO FROM deleted JOIN stock on stoc_producto = prod_codigo WHERE stoc_cantidad > 0
     OPEN C1 
     FETCH NEXT C1 INTO @PRODUCTO
     WHILE @@FETCH_STATUS = 0
@@ -550,17 +616,17 @@ create function ej1q2 (@producto char(8),@componente char(8))
 returns int
 as 
 BEGIN
-    declare @ret int, @comp char(8) 
+    DECLARE @ret int, @comp char(8) 
     if @producto = @componente
-        select @ret = 1
+        SELECT @ret = 1
     ELSE
         begin
-            declare cur_comp cursor for select comp_componente from composicion where comp_producto = @producto
+            DECLARE cur_comp CURSOR for SELECT comp_componente FROM composicion WHERE comp_producto = @producto
             open cur_comp
             fetch cur_comp into @comp
-            while @@FETCH_STATUS = 0 and @ret = 0
+            while @@FETCH_STATUS = 0 AND @ret = 0
             begin 
-                select @ret = dbo.ej1q2(@producto, @comp)
+                SELECT @ret = dbo.ej1q2(@producto, @comp)
                 fetch cur_comp into @comp
             END
             close cur_comp
@@ -576,9 +642,9 @@ CREATE FUNCTION eje12 (@producto char(8), @componente char(8))
 RETURNS INT
 AS 
 BEGIN
-    declare @ret int = 0
+    DECLARE @ret int = 0
     if @producto = @componente
-        select @ret = 1
+        SELECT @ret = 1
     ELSE
         SELECT @ret = MAX(dbo.eje12(@producto, comp_componente)) FROM Composicion WHERE comp_producto = @componente
     return @ret
@@ -588,7 +654,7 @@ GO
 ---------------------------------------------------
 
 SELECT DBO. COMPONE (PROD_CODIGO, '00001104') FROM Producto -- Aparecen con 1 el producto y los dos componentes
-select * from Composicion ORDER By comp_producto
+SELECT * FROM Composicion ORDER By comp_producto
 GO
 
 ---------------------------------------------------13---------------------------------------------------
@@ -602,13 +668,13 @@ CREATE TRIGGER ningúnJefe ON Empleado AFTER INSERT, UPDATE, DELETE
 AS
 BEGIN
     -- Si el sueldo del jefe es mayor al del empleado, no cumple la regla
-    IF EXISTS ( SELECT * FROM inserted i WHERE dbo.ej13(empl_jefe) < ( SELECT empl_salario * 0.2 FROM empleado WHERE empl_codigo = i.empl_jefe ) ) -- El subselect trae el sueldo del jefe
+    IF EXISTS ( SELECT * FROM inserted i WHERE dbo.ej13(empl_jefe) < ( SELECT empl_salario * 0.2 FROM empleado WHERE empl_codigo = i.empl_jefe ) ) -- El subSELECT trae el sueldo del jefe
     BEGIN
         PRINT 'ÉL SALARIO DEL JEFE ES MAYOR'
         ROLLBACK
     END
 
-    IF EXISTS ( SELECT * FROM deleted d WHERE dbo.ej13(empl_jefe) < ( SELECT empl_salario * 0.2 FROM empleado WHERE empl_codigo = d.empl_jefe ) ) -- El subselect trae el sueldo del jefe
+    IF EXISTS ( SELECT * FROM deleted d WHERE dbo.ej13(empl_jefe) < ( SELECT empl_salario * 0.2 FROM empleado WHERE empl_codigo = d.empl_jefe ) ) -- El subSELECT trae el sueldo del jefe
     BEGIN
         PRINT 'ÉL SALARIO DEL JEFE ES MAYOR'
         ROLLBACK
@@ -655,13 +721,13 @@ GO
 create trigger ejer13 on empleado for update, delete  
 AS
 BEGIN
-    if ( select count(*) from inserted i where ( select empl_salario from empleado where empl_codigo = i.empl_jefe ) < dbo.ejer13(i.empl_jefe) * 0.2 ) < 0
+    if ( SELECT count(*) FROM inserted i WHERE ( SELECT empl_salario FROM empleado WHERE empl_codigo = i.empl_jefe ) < dbo.ejer13(i.empl_jefe) * 0.2 ) < 0
         begin    
             ROLLBACK
             PRINT('El salario de la suma de los empeados no puede ser menor al 20% del salario del jefe')        
         end    
     
-    if (select count(*) from deleted i where (select empl_salario from empleado where empl_codigo = i.empl_jefe) < dbo.ejer13(i.empl_jefe) * 0.2 ) < 0
+    if (SELECT count(*) FROM deleted i WHERE (SELECT empl_salario FROM empleado WHERE empl_codigo = i.empl_jefe) < dbo.ejer13(i.empl_jefe) * 0.2 ) < 0
         begin    
             ROLLBACK
             PRINT('El salario de la suma de los empeados no puede ser menor al 20% del salario del jefe')        
@@ -673,7 +739,7 @@ CREATE FUNCTION ejer13 (@codigo NUMERIC(6))
 RETURNS INT
 AS 
 BEGIN
-    declare @ret numeric(12,2)
+    DECLARE @ret numeric(12,2)
     return (SELECT sum(empl_salario)+dbo.ejer13(empl_codigo) FROM Empleado WHERE empl_jefe = @codigo)
 END
 GO
@@ -691,14 +757,14 @@ GO
 
 CREATE TRIGGER ej14 ON item_factura instead of INSERT  
 -- AFTER --> Entran todos los renglones o ninguno, para que no quede inconsistente la factura
--- instead of -- Cursores --> Algunos entraran y otros tiraran error 
+-- instead of -- CURSORes --> Algunos entraran y otros tiraran error 
                           --> Tratamiento individual
--- SIMPRE instead of VA CON Cursores
+-- SIMPRE instead of VA CON CURSORes
 AS
 BEGIN
 	DECLARE @prod char(8), @precio decimal(12,4), @fecha datetime, @cliente char(4), @tipo char(1), @sucursal char(4), @numero char(8), @cantidad decimal(12,2)
 	
-    -- Declara un cursor con todos los productos que son compuestos
+    -- Declara un CURSOR con todos los productos que son compuestos
 	DECLARE c1 CURSOR FOR SELECT item_producto, item_precio, fact_fecha, fact_cliente, fact_tipo, fact_sucursal, fact_numero, item_cantidad 
 						    FROM inserted
 						    JOIN factura ON fact_numero + fact_sucursal + fact_tipo = item_numero + item_sucursal + item_tipo
@@ -734,35 +800,35 @@ GO
 create trigger ej14 on item_factura instead of insert 
 as
 begin 
-    declare @producto char(8), @precio numeric(12,2), @sucursal char(4), @cantidad numeric(12,2), @fecha smalldatetime, @cliente char(4), @tipo char, @numero char(8)
+    DECLARE @producto char(8), @precio numeric(12,2), @sucursal char(4), @cantidad numeric(12,2), @fecha smalldatetime, @cliente char(4), @tipo char, @numero char(8)
     
-    -- Definir el cursor para obtener los datos de la factura
-    declare cfact cursor for (
-                                select item_tipo, item_sucursal, item_numero, fact_fecha, fact_cliente 
-                                from inserted 
-                                join factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
-                                group by item_tipo, item_sucursal+item_numero
+    -- Definir el CURSOR para obtener los datos de la factura
+    DECLARE cfact CURSOR for (
+                                SELECT item_tipo, item_sucursal, item_numero, fact_fecha, fact_cliente 
+                                FROM inserted 
+                                JOIN factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+                                GROUP BY item_tipo, item_sucursal+item_numero
                             )
     open cfact
     fetch cfact netx into @tipo, @sucursal,@numero, @fehca, @cliente
     while @@FETCH_STATUS = 0
    
     BEGIN
-        -- Definir el cursor para obtener los productos de cada factura
-        declare c1 cursor for select item_producto, item_precio, item_cantidad from inserted where item_tipo+item_sucursal+item_numero = @tipo+@sucursal+@numero
+        -- Definir el CURSOR para obtener los productos de cada factura
+        DECLARE c1 CURSOR for SELECT item_producto, item_precio, item_cantidad FROM inserted WHERE item_tipo+item_sucursal+item_numero = @tipo+@sucursal+@numero
         open c1 fetch c1 netx into @producto, @precio, @cantidad
-        declare @nocumple int = 0
-        while @@FETCH_STATUS = 0 and @nocumple = 0
+        DECLARE @nocumple int = 0
+        while @@FETCH_STATUS = 0 AND @nocumple = 0
         
         BEGIN
             -- Verificación de precios
-            if @precio > (select isnull(sum(prod_precio),0) from producto join composicion on comp_producto = @producto and comp_componente = prod_codigo) 
+            if @precio > (SELECT isnull(sum(prod_precio),0) FROM producto JOIN composicion on comp_producto = @producto AND comp_componente = prod_codigo) 
                 insert item_factura values(@tipo,@sucursal,@numero, @producto, @cantidad,@precio)
             
-            else if @precio < (select isnull(sum(prod_precio),0) from producto join composicion on comp_producto = @producto and comp_componente = prod_codigo) * 0.5 
+            else if @precio < (SELECT isnull(sum(prod_precio),0) FROM producto JOIN composicion on comp_producto = @producto AND comp_componente = prod_codigo) * 0.5 
                 begin
                     print('la suma de los componentes es menor que 50% del precio del producto '+@producto+' para la fecha '+@fecha+' del cliente '+@cliente)
-                    select @nocumple = 1
+                    SELECT @nocumple = 1
                 end
             
             else 
@@ -795,7 +861,7 @@ go
 -- Se debe prever que el precio de los productos compuestos sera la sumatoria de los componentes del mismo multiplicado por sus respectivas cantidades. 
 -- No se conocen los nivles de anidamiento posibles de los productos. 
 -- Se asegura que nunca un producto esta compuesto por si mismo a ningun nivel. 
--- El objeto principal debe poder ser utilizado como filtro en el where de una sentencia select.
+-- El objeto principal debe poder ser utilizado como filtro en el WHERE de una sentencia SELECT.
 
 CREATE FUNCTION precioDeComponentes ( @ProductoID char(8) )
 RETURNS DECIMAL(12,2)
@@ -856,7 +922,7 @@ BEGIN
                 DECLARE c_deposito CURSOR FOR SELECT  stoc_deposito, stoc_Cantidad FROM stock WHERE @componente = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
                 OPEN c_deposito
                 FETCH NEXT INTO @deposito, @depo_cantidad
-                WHILE @@FETCH_STATUS = 0 and @cantidad > 0
+                WHILE @@FETCH_STATUS = 0 AND @cantidad > 0
                 -- Que voy a controlar --> Bajar el stock de todos los depositos, hasta que concuerde con lo vendido
                 BEGIN
                     if @depo_cantidad >= @cantidad -- El deposito tenia mas productos en stock que los vendidos
@@ -870,10 +936,10 @@ BEGIN
                             SELECT @cantidad = @cantidad - @depo_cantidad
                             SELECT @depo_ant = @deposito
                         END
-                    fetch next from c_deposito into @deposito, @depo_cantidad
+                    FETCH NEXT FROM c_deposito into @deposito, @depo_cantidad
                 END
                 -- Se queda con el ultimo stock que desconto
-                update stock set stoc_cantidad = stoc_cantidad - @depo_cantidad where stoc_producto = @producto and stoc_deposito = @depo_ant
+                update stock set stoc_cantidad = stoc_cantidad - @depo_cantidad WHERE stoc_producto = @producto AND stoc_deposito = @depo_ant
                 FETCH NEXT INTO @producto, @cantidad
             END
 
@@ -886,7 +952,7 @@ BEGIN
                 DECLARE c_deposito CURSOR FOR SELECT  stoc_deposito, stoc_Cantidad FROM stock WHERE @producto = stoc_producto AND stoc_cantidad > 0 ORDER BY stoc_cantidad DESC
                 OPEN c_deposito
                 FETCH NEXT INTO @deposito, @depo_cantidad
-                WHILE @@FETCH_STATUS = 0 and @cantidad > 0
+                WHILE @@FETCH_STATUS = 0 AND @cantidad > 0
                 -- Que voy a controlar --> Bajar el stock de todos los depositos, hasta que concuerde con lo vendido
                 BEGIN
                     if @depo_cantidad >= @cantidad -- El deposito tenia mas productos en stock que los vendidos
@@ -900,10 +966,10 @@ BEGIN
                             SELECT @cantidad = @cantidad - @depo_cantidad
                             SELECT @depo_ant = @deposito
                         END
-                    fetch next from c_deposito into @deposito, @depo_cantidad
+                    FETCH NEXT FROM c_deposito into @deposito, @depo_cantidad
                 END
                 -- Se queda con el ultimo stock que desconto
-                update stock set stoc_cantidad = stoc_cantidad - @depo_cantidad where stoc_producto = @producto and stoc_deposito = @depo_ant
+                update stock set stoc_cantidad = stoc_cantidad - @depo_cantidad WHERE stoc_producto = @producto AND stoc_deposito = @depo_ant
                 FETCH NEXT INTO @producto, @cantidad
             END
 	END
@@ -987,7 +1053,7 @@ GO
 ---------------------------------------------------19---------------------------------------------------
 
 -- Cree el/los objetos de BD necesarios para que se cumpla la siguiente regla de negocio automáticamente
--- "Ningún jefe puede tener menos de 5 años de antiguedad y tampoco puede tener más del 50% del personal a su cargo (contando directos e indirectos) a excepción del gerente general". 
+-- "Ningún jefe puede tener menos de 5 años de antiguedad y tampoco puede tener más del 50% del personal a su cargo (contANDo directos e indirectos) a excepción del gerente general". 
 -- Se sabe que en la actualidad la regla se cumple y existe un único gerente general.
 
 CREATE TRIGGER ningunJefe2 ON Empleado FOR INSERT, UPDATE, DELETE 
@@ -1064,19 +1130,19 @@ BEGIN
             
     BEGIN
         DECLARE @NUMERO char(8),@SUCURSAL char(4),@TIPO char(1)
-        DECLARE cursorFacturas CURSOR FOR SELECT fact_numero,fact_sucursal,fact_tipo FROM inserted
-        OPEN cursorFacturas
-        FETCH NEXT FROM cursorFacturas INTO @NUMERO,@SUCURSAL,@TIPO
+        DECLARE CURSORFacturas CURSOR FOR SELECT fact_numero,fact_sucursal,fact_tipo FROM inserted
+        OPEN CURSORFacturas
+        FETCH NEXT FROM CURSORFacturas INTO @NUMERO,@SUCURSAL,@TIPO
         WHILE @@FETCH_STATUS = 0
         
         BEGIN
             DELETE FROM Item_Factura WHERE item_numero+item_sucursal+item_tipo = @NUMERO+@SUCURSAL+@TIPO
             DELETE FROM Factura WHERE fact_numero+fact_sucursal+fact_tipo = @NUMERO+@SUCURSAL+@TIPO
-            FETCH NEXT FROM cursorFacturas INTO @NUMERO,@SUCURSAL,@TIPO
+            FETCH NEXT FROM CURSORFacturas INTO @NUMERO,@SUCURSAL,@TIPO
         END
         
-        CLOSE cursorFacturas
-        DEALLOCATE cursorFacturas
+        CLOSE CURSORFacturas
+        DEALLOCATE CURSORFacturas
         RAISERROR ('no puede ingresar productos de mas de una familia en una misma factura.',1,1)
         ROLLBACK
     END
@@ -1088,9 +1154,9 @@ CREATE PROCEDURE ej31
 AS 
 BEGIN
     DECLARE @EMPLEADO NUMERIC(6), @JEFE_ALTERNATIVO NUMERIC(6), @CANTIDAD INT 
-    DECLARE cursor_empleado CURSOR FOR SELECT empl_codigo FROM Empleado where dbo.ej11(empl_codigo) > 20
-    OPEN cursor_empleado
-    FETCH NEXT FROM cursor_empleado INTO @EMPLEADO
+    DECLARE CURSOR_empleado CURSOR FOR SELECT empl_codigo FROM Empleado WHERE dbo.ej11(empl_codigo) > 20
+    OPEN CURSOR_empleado
+    FETCH NEXT FROM CURSOR_empleado INTO @EMPLEADO
     WHILE (@@FETCH_STATUS = 0)
     -- Busco a un jefe alternativo para redistribuir
     BEGIN
@@ -1103,8 +1169,8 @@ BEGIN
         -- Redistribuyo a los excedentes
         UPDATE Empleado SET empl_jefe = @JEFE_ALTERNATIVO WHERE empl_jefe = @EMPLEADO
         
-        FETCH NEXT FROM cursor_empleado INTO @EMPLEADO
+        FETCH NEXT FROM CURSOR_empleado INTO @EMPLEADO
     END
-    CLOSE cursor_empleado
-    DEALLOCATE cursor_empleado
+    CLOSE CURSOR_empleado
+    DEALLOCATE CURSOR_empleado
 END
