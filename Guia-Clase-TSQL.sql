@@ -588,10 +588,12 @@ AS
 BEGIN
     DECLARE @COMP CHAR(8)
     
-    IF ( @PRODUCTO = @COMPONENTE )
+    -- Composicion directa
+    IF ( @PRODUCTO = @COMPONENTE ) 
         RETURN 1
 
-    DECLARE C1 CURSOR FOR SELECT comp_componente FROM Composicion WHERE comp_producto = @COMPONENTE
+    -- Composicion indirecta
+    DECLARE C1 CURSOR FOR SELECT comp_componente FROM Composicion WHERE comp_producto = @COMPONENTE 
     OPEN C1
     FETCH NEXT FROM C1 INTO @COMP
     WHILE @@FETCH_STATUS = 0
