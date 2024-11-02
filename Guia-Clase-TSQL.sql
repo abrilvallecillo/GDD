@@ -154,8 +154,7 @@ BEGIN
                         )
     
     SELECT TOP 1 @vendedor = empl_codigo FROM empleado order by empl_comision desc
-    
-    
+ 
     RETURN
 END
 go 
@@ -427,7 +426,7 @@ begin
 END
 GO
 
-create trigger ej10 on producto INSTEAD of delete --> Va evaluANDo articulo por articulo
+create trigger ej10 on producto INSTEAD of delete --> Va evaluando articulo por articulo
 AS
 begin
     if (SELECT count (*) FROM deleted JOIN stock on stoc_producto = prod_codigo WHERE stoc_cantidad > 0) > 0
@@ -864,6 +863,35 @@ begin
 end 
 go 
 
+---------------------------------------------------
+
+create trigger ej14 on item_factura instead of insert
+as
+begin
+    declare @producto char(8), @precio numeric(12,2), @sucursal char(4), @cantidad numeric(12,2), @tipo char, @numero char(8)
+    declare cl cursor for select item_producto, item_precio from inserted
+    open cl
+    fetch cl netx into @producto, @precio, @cantidad, @tipo, @sucursal, @numero
+    while @@FETCH_STATUS = 0
+    BEGIN
+        if @precio > (select isnull(sum(prod_precio),0) from producto join composicion on comp_producto = @producto and comp_componente = prod_codigo)
+            insert item_factura values(@tipo,@sucursal,@numero, @producto, @cantidad, @precio)
+        
+        else
+            if @precio < (select isnull(sum(prod_precio),0) from producto join composicion on comp_producto = @producto and comp_componente = prod_codigo) * 0.5
+                print('la suma de los componentes es menor que 505 del precio del producto '+ @producto)
+
+            else
+                begin
+                    insert item_factura values(@tipo,@sucursal,@numero, @producto, @cantidad,@precio)
+                    print('la suma de los componetes es menor que el precio del producto' +@producto)
+                end
+        
+        fetch cl netx into @producto, @precio
+    END
+END
+GO
+
 ---------------------------------------------------15---------------------------------------------------
 
 -- Cree el/los objetos de base de datos necesarios para que el objeto principal reciba un producto como parametro y retorne el precio del mismo.
@@ -1036,7 +1064,7 @@ GO
 -- Sabiendo que el limite de credito de un cliente es el monto maximo que se le puede facturar mensualmente, cree el/los objetos de BD necesarios para que dicha regla de negocio se cumpla automaticamente. 
 -- No se conoce la forma de acceso a los datos ni el procedimiento por el cual se emiten las facturas
 
-CREATE TRIGGER limiteDeCredito ON Factura AFTER INSERT -- Las facturas no se modifican
+CREATE TRIGGER limiteDeCredito ON Factura INSTEAD OF INSERT -- Las facturas no se modifican
 AS
 BEGIN
     DECLARE @cliente char (4), @anio numeric(4), @mes numeric (2)
@@ -1157,6 +1185,128 @@ BEGIN
     END
 END
 GO
+
+---------------------------------------------------22---------------------------------------------------
+
+CREATE PROC dbo.Ejercicio22
+AS
+BEGIN
+	declare @rubro char(4), @cantProdRubro int
+	declare cursor_rubro CURSOR FOR ( SELECT R.rubr_id,COUNT(*) FROM rubro R JOIN Producto P ON P.prod_rubro = R.rubr_id GROUP BY R.rubr_id HAVING COUNT(*) > 20 )
+	OPEN cursor_rubro
+	FETCH NEXT FROM cursor_rubro INTO @rubro,@cantProdRubro
+	WHILE @@FETCH_STATUS = 0
+
+	BEGIN
+		declare @cantProdRubroIndividual int = @cantProdRubro, @prodCod char(8), @rubroLibre char(4)
+		declare cursor_productos CURSOR FOR ( SELECT prod_codigo FROM Producto WHERE prod_rubro = @rubro )
+		OPEN cursor_productos
+		FETCH NEXT FROM cursor_productos INTO @prodCod
+		WHILE @@FETCH_STATUS = 0 OR @cantProdRubroIndividual < 21
+		BEGIN
+			IF EXISTS ( SELECT TOP 1 rubr_id FROM Rubro JOIN Producto ON prod_rubro = rubr_id GROUP BY rubr_id HAVING COUNT(*) < 20 ORDER BY COUNT(*) ASC )
+			    BEGIN
+				    SET @rubroLibre = ( SELECT TOP 1 rubr_id
+                                        FROM Rubro
+										JOIN Producto ON prod_rubro = rubr_id
+                                        GROUP BY rubr_id
+                                        HAVING COUNT(*) < 20
+                                        ORDER BY COUNT(*) ASC
+                                        )
+				    UPDATE Producto SET prod_rubro = @rubroLibre WHERE prod_codigo = @prodCod
+			    END
+			
+            ELSE
+			    BEGIN
+			    	IF NOT EXISTS ( SELECT rubr_id FROM Rubro WHERE rubr_detalle = 'Rubro reasignado' )  
+                        INSERT INTO Rubro (RUBR_ID,rubr_detalle) VALUES ('xx','Rubro reasignado')
+                    
+                    UPDATE Producto set prod_rubro = ( SELECT rubr_id FROM Rubro WHERE rubr_detalle = 'Rubro reasignado' ) WHERE prod_codigo = @prodCod
+			    END
+
+			SET @cantProdRubroIndividual -= 1
+
+		    FETCH NEXT FROM cursor_productos INTO @prodCod
+		END
+		
+        CLOSE cursor_productos
+		DEALLOCATE cursor_productos
+	    FETCH NEXT FROM cursor_rubro INTO @rubro,@cantProdRubro
+	
+    END
+	
+    CLOSE cursor_rubro
+	DEALLOCATE cursor_productos
+END
+GO
+
+---------------------------------------------------23---------------------------------------------------
+
+-- Desarrolle el/los elementos de BD necesarios para que ante una venta automaticamante se controle que en una misma factura no puedan venderse más de dos productos con composición. 
+-- Si esto ocurre de bera rechazarse la factura.
+
+CREATE TRIGGER dbo.Ejercicio23 ON item_factura FOR INSERT
+AS
+BEGIN
+	DECLARE @tipo char(1), @sucursal char(4), @numero char(8), @producto char(8)
+	DECLARE cursor_ifact CURSOR FOR ( SELECT item_tipo,item_sucursal,item_numero,item_producto FROM inserted )
+	OPEN cursor_ifact
+	FETCH NEXT FROM cursor_ifact INTO @tipo,@sucursal,@numero,@producto
+	WHILE @@FETCH_STATUS = 0
+	
+    BEGIN
+		IF ( SELECT COUNT(*) FROM inserted WHERE item_tipo + item_sucursal + item_numero = @tipo + @sucursal + @numero AND item_producto IN ( SELECT comp_producto FROM Composicion ) ) >= 2
+            BEGIN
+                DELETE FROM Item_factura WHERE item_tipo + item_sucursal + item_numero = @tipo + @sucursal + @numero
+                DELETE FROM Factura WHERE fact_tipo + fact_sucursal + fact_numero = @tipo + @sucursal + @numero
+                RAISERROR('En una misma factura no pueden venderse mas de dos productos con composicion',1,1)
+                ROLLBACK TRANSACTION
+            END
+
+	    FETCH NEXT FROM cursor_ifact INTO @tipo,@sucursal,@numero,@producto
+    END
+    
+	CLOSE cursor_ifact
+	DEALLOCATE cursor_ifact
+END
+GO
+
+---------------------------------------------------24---------------------------------------------------
+
+IF OBJECT_ID('dbo.ejercicio24', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.ejercicio24;
+GO
+
+CREATE PROCEDURE dbo.ejercicio24
+AS
+BEGIN
+	DECLARE @depocitoCodigo char(2), @depocitoEncargado numeric(6,0), @depocitoZona char(3)
+	DECLARE cursor_zona CURSOR FOR SELECT depo_codigo, depo_encargado, depo_zona FROM DEPOSITO
+	OPEN cursor_zona
+	FETCH NEXT FROM cursor_zona INTO @depocitoCodigo, @depocitoEncargado, @depocitoZona
+	WHILE @@FETCH_STATUS = 0
+	BEGIN
+		IF ( @depocitoZona <> ( SELECT depa_zona FROM Departamento JOIN Empleado ON empl_departamento = depa_codigo WHERE empl_codigo = @depocitoEncargado ) )
+		    UPDATE DEPOSITO SET depo_encargado = (
+                                                    SELECT TOP 1 empl_codigo
+                                                    FROM Empleado
+                                                    JOIN DEPOSITO ON depo_encargado = empl_codigo
+                                                    JOIN Departamento ON depa_codigo = empl_departamento
+                                                    WHERE depa_zona = @depocitoZona
+                                                    GROUP BY empl_codigo
+                                                    ORDER BY COUNT(*) ASC
+										        ) 
+            
+            WHERE depo_codigo = @depocitoCodigo
+            
+
+	    FETCH NEXT FROM cursor_zona INTO @depocitoCodigo, @depocitoEncargado, @depocitoZona
+	END
+	CLOSE cursor_zona
+	DEALLOCATE cursor_zona
+END
+GO
+
 ---------------------------------------------------31---------------------------------------------------
 
 CREATE PROCEDURE ej31 
@@ -1183,3 +1333,4 @@ BEGIN
     CLOSE CURSOR_empleado
     DEALLOCATE CURSOR_empleado
 END
+GO

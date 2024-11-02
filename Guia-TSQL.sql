@@ -556,20 +556,20 @@ BEGIN
     WHILE @@FETCH_STATUS = 0
 	
     BEGIN 	
+        DECLARE @sum_componentes decimal(12,2);
+
+        SELECT @sum_componentes = SUM(comp_cantidad * prod_precio) FROM Composicion JOIN Producto ON comp_componente = prod_codigo WHERE comp_producto = @item_producto GROUP BY comp_producto 
+
         -- No se deberá permitir que dicho precio sea menor a la mitad de la suma de los componentes
-        IF ( ( @item_precio * @item_cantidad ) > ( SELECT SUM ( comp_cantidad * prod_precio ) FROM composicion JOIN producto ON prod_codigo = comp_componente GROUP BY comp_producto ) / 2 )
-        BEGIN
-            PRINT('No se puede ingresar: ' + @item_producto )
-            FETCH NEXT FROM cur INTO @item_producto, @item_precio, @item_cantidad, @fact_fecha, @fact_cliente, @fact_tipo, @fact_sucursal, @fact_numero
-        END
+        IF ( ( @item_precio * @item_cantidad ) > ( @sum_componentes ) / 2 )
+            RAISERROR('El precio es menor que la mitad de la suma de componentes para el producto: %s', 16, 1, @item_producto);
 
         -- Si un cliente compra un producto compuesto a un precio menor que la suma de los precios de sus componentes
-        IF ( ( @item_precio * @item_cantidad ) < ( SELECT SUM ( comp_cantidad * prod_precio ) FROM Composicion JOIN Producto ON comp_componente = prod_codigo GROUP BY comp_producto ) )
+        IF ( ( @item_precio * @item_cantidad ) < ( @sum_componentes ) )
             -- Imprima la fecha, que cliente, que productos y a qué precio se realizó la compra
             PRINT(@fact_fecha + @fact_cliente + @item_producto + @item_precio)
 
-        INSERT item_factura( item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio )
-		VALUES( @fact_tipo, @fact_sucursal, @fact_numero, @item_producto, @item_cantidad, @item_precio )
+        INSERT item_factura VALUES ( @fact_tipo, @fact_sucursal, @fact_numero, @item_producto, @item_cantidad, @item_precio )
         FETCH NEXT FROM cur INTO @item_producto, @item_precio, @item_cantidad, @fact_fecha, @fact_cliente, @fact_tipo, @fact_sucursal, @fact_numero
     END
     CLOSE cur;
@@ -627,7 +627,7 @@ GO
 -- En caso que no alcance el stock de un deposito se descontara del siguiente y asi hasta agotar los depositos posibles. 
 -- En ultima instancia se dejara stock negativo en el ultimo deposito que se desconto.
 
-ALTER TRIGGER DescontarStockEnVenta ON Item_factura AFTER INSERT
+ALTER TRIGGER DescontarStockEnVenta ON Item_factura INSTEAD OF INSERT
 AS
 BEGIN
     DECLARE @producto char(8), @cantidad decimal(12,2)
@@ -742,7 +742,7 @@ GO
 -- para que dicha regla de negocio se cumpla automaticamente. 
 -- No se conoce la forma de acceso a los datos ni el procedimiento por el cual se emiten las facturas
 
-CREATE TRIGGER creditoCliente ON Factura AFTER UPDATE, INSERT
+CREATE TRIGGER creditoCliente ON Factura INSTEAD OF UPDATE, INSERT
 AS
 BEGIN    
     DECLARE @cliente CHAR(4), @anio NUMERIC(4), @mes NUMERIC(2), @totalMensual DECIMAL(12,2)
@@ -846,7 +846,7 @@ GO
 -- Desarrolle el/los elementos de BD necesarios para que se cumpla automaticamente la regla de que en una factura no puede contener productos de diferentes familias. 
 -- En caso de que esto ocurra no debe grabarse esa factura y debe emitirse un error en pantalla.
 
-CREATE TRIGGER VerificarFamiliaFactura ON Factura AFTER INSERT -- Utilizamos INSTEAD OF para evitar tener una factura con productos diferentes
+CREATE TRIGGER VerificarFamiliaFactura ON Factura INSTEAD OF INSERT -- Utilizamos INSTEAD OF para evitar tener una factura con productos diferentes
 AS
 BEGIN
     IF EXISTS (
@@ -866,38 +866,217 @@ GO
 
 ---------------------------------------------------22---------------------------------------------------
 
--- Se requiere recategorizar los rubros de productos, de forma tal que nigun rubro tenga más de 20 productos asignados, si un rubro tiene más de 
--- 20 productos asignados se deberan distribuir en otros rubros que no tengan mas de 20 productos y si no entran se debra crear un nuevo rubro en la misma 
--- familia con la descirpción “RUBRO REASIGNADO”, cree el/los objetos de base de datos necesarios para que dicha regla de negocio quede implementada.
+-- Se requiere recategorizar los rubros de productos, de forma tal que nigun rubro tenga más de 20 productos asignados, si un rubro tiene más de 20 productos asignados se 
+-- deberan distribuir en otros rubros que no tengan mas de 20 productos y si no entran se debra crear un nuevo rubro en la misma familia con la descirpción “RUBRO REASIGNADO”, 
+-- cree el/los objetos de BD necesarios para que dicha regla de negocio quede implementada.
+
+IF OBJECT_ID('dbo.ReasignarProductos', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.ReasignarProductos;
+GO
+
+CREATE PROCEDURE ReasignarProductos -- Para que dicha regla de negocio quede implementada --> Nunca dice que automaticamente
+AS
+BEGIN
+    -- Existen rubros que tengan más de 20 productos asignados
+    IF EXISTS ( SELECT rubr_id FROM Producto JOIN Rubro ON prod_rubro = rubr_id GROUP BY rubr_id HAVING COUNT (rubr_id) > 20 )
+        BEGIN
+            DECLARE @rubro_actual char(4), @cantidadDeProductos int
+            DECLARE cur CURSOR FOR ( SELECT rubr_id, COUNT(*) FROM Producto JOIN Rubro ON prod_rubro = Rubro.rubr_id GROUP BY rubr_id HAVING COUNT (rubr_id) > 20 )
+            OPEN cur
+            FETCH NEXT FROM cur INTO @rubro_actual, @cantidadDeProductos
+            WHILE @@FETCH_STATUS = 0
+
+            BEGIN
+                -- Reubicar productos de @rubro_actual en otros rubros que tengan menos de 20 productos
+                DECLARE @producto char(8),  @cantidadProductosEnRubro int = @cantidadDeProductos
+                DECLARE cur_productos CURSOR FOR ( SELECT prod_codigo FROM Producto WHERE prod_rubro = @rubro_actual )
+                OPEN cur_productos
+                FETCH NEXT FROM cur_productos INTO @producto
+                WHILE @@FETCH_STATUS = 0 OR @cantidadProductosEnRubro < 21
+
+                BEGIN
+                    IF EXISTS ( SELECT TOP 1 rubr_id FROM Producto JOIN Rubro ON prod_rubro = rubr_id GROUP BY rubr_id HAVING COUNT(*) < 20 ORDER BY COUNT(*) ASC )
+                        -- Actualizar el producto para asignarlo al nuevo rubro
+                        UPDATE Producto SET prod_rubro = ( 
+                                                            SELECT TOP 1 rubr_id
+                                                            FROM Rubro
+                                                            JOIN Producto ON prod_rubro = rubr_id
+                                                            GROUP BY rubr_id
+                                                            HAVING COUNT(*) < 20
+                                                            ORDER BY COUNT(*) ASC
+                                                        ) 
+                        WHERE prod_codigo = @producto
+                    
+                    ELSE
+                        BEGIN
+                            IF NOT EXISTS ( SELECT rubr_id FROM Rubro WHERE rubr_detalle = 'Rubro reasignado' )  
+                                INSERT INTO Rubro (RUBR_ID,rubr_detalle) VALUES ('xx','Rubro reasignado')
+                        
+                            UPDATE Producto SET prod_rubro = ( SELECT rubr_id FROM Rubro WHERE rubr_detalle = 'Rubro reasignado' ) WHERE prod_codigo = @producto
+                        END
+
+			        SET @cantidadProductosEnRubro -= 1 -- Cuando llegue a 20 paso al siguente rubro
+
+                    FETCH NEXT FROM cur_productos INTO @producto
+                END
+
+                    CLOSE cur_productos
+                    DEALLOCATE cur_productos
+                    FETCH NEXT FROM cur INTO @rubro_actual
+            END
+            
+            CLOSE cur
+            DEALLOCATE cur
+        END
+END
+GO
 
 ---------------------------------------------------23---------------------------------------------------
 
--- Desarrolle el/los elementos de base de datos necesarios para que ante una venta automaticamante se controle que en una misma factura no puedan venderse 
--- más de dos productos con composición. 
+-- Desarrolle el/los elementos de BD necesarios para que ante una venta automaticamante se controle que en una misma factura no puedan venderse más de dos productos con composición. 
 -- Si esto ocurre de bera rechazarse la factura.
+
+CREATE TRIGGER NoProductosCompuestos ON Factura INSTEAD OF INSERT -- Utilizamos INSTEAD OF para evitar tener una factura con +2 productos compuestos
+AS
+BEGIN
+    IF (
+        SELECT COUNT ( item_producto )
+        FROM inserted
+        JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+        WHERE item_producto IN ( SELECT comp_producto FROM Composicion ) -- Productos con Composicion
+        GROUP BY item_tipo,item_sucursal,item_numero
+    ) >= 2
+    --> BORRA SOLO LOS QUE TIENEN MAS DE DOS PRODUCTOS COMPUESTOS
+    BEGIN
+        RAISERROR ('Error: La factura contiene mas de dos productos compuestos. No se permite la grabación.', 16, 1)
+        ROLLBACK
+    END
+END
+GO
+
+---------------------------------------------------
+
+CREATE TRIGGER NoProductosCompuestosCURSOR ON Factura INSTEAD OF INSERT -- Utilizamos INSTEAD OF para evitar tener una factura con +2 productos compuestos
+AS
+BEGIN
+    DECLARE @tipo char(1), @sucursal char(4), @numero char(8), @producto char(8)
+    DECLARE cursorProductos CURSOR FOR ( SELECT item_tipo, item_sucursal, item_numero, item_producto FROM inserted JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero )
+    OPEN cursorProductos
+    FETCH NEXT FROM cursorProductos INTO @tipo, @sucursal, @numero, @producto
+    WHILE @@FETCH_STATUS = 0
+    -- Contar productos compuestos
+    BEGIN
+        DECLARE @countCompuestos int = 0
+        IF EXISTS ( SELECT 1 FROM Composicion WHERE comp_producto = @producto )
+            SET @countCompuestos = @countCompuestos + 1
+    
+        FETCH NEXT FROM cursorProductos INTO @tipo, @sucursal, @numero, @producto;
+    END
+    CLOSE cursorProductos
+    DEALLOCATE cursorProductos
+
+    -- Verificar si hay más de 2 productos compuestos
+    IF ( @countCompuestos >= 2 ) 
+        BEGIN
+            DELETE FROM Item_factura WHERE item_tipo + item_sucursal + item_numero = @tipo + @sucursal + @numero -- Borro todos los renglones de la facura
+            DELETE FROM Factura WHERE fact_tipo + fact_sucursal + fact_numero = @tipo + @sucursal + @numero -- Borro la factura
+            RAISERROR ('Error: La factura contiene más de dos productos compuestos. No se permite la grabación.', 16, 1);
+            ROLLBACK TRANSACTION;
+        END
+    
+    ELSE
+        -- Si no hay más de 2 productos compuestos, se permite la inserción
+        BEGIN    
+            INSERT INTO Factura
+            SELECT * FROM inserted
+        END
+END
+GO
 
 ---------------------------------------------------24---------------------------------------------------
 
---  Se requiere recategorizar los encargados asignados a los depositos. 
--- Para ello cree el o los objetos de bases de datos necesarios que lo resueva, teniendo en cuenta que un deposito no puede tener como encargado un 
+-- Se requiere recategorizar los encargados asignados a los depositos. 
+-- Para ello cree el o los objetos de BD necesarios que lo resueva, teniendo en cuenta que un deposito no puede tener como encargado un 
 -- empleado que pertenezca a un departamento que no sea de la misma zona que el deposito, si esto ocurre a dicho deposito debera asignársele el empleado 
 -- con menos depositos asignados que pertenezca a un departamento de esa zona.
 
+---------------------------------------------------
+
+-- Todos los depósitos que no tienen como encargado un empleado que pertenezca a un departamento que no sea de la misma zona que el deposito
+SELECT depo_codigo 
+FROM Empleado 
+JOIN Departamento ON depa_codigo = empl_departamento 
+JOIN DEPOSITO ON depo_encargado = empl_codigo 
+WHERE depo_zona <> depa_zona
+GO
+
+-- Empleado con menos depositos asignados que pertenezca a un departamento de esa zona. 
+SELECT TOP 1 empl_codigo
+FROM Empleado 
+JOIN Departamento ON depa_codigo = empl_departamento 
+JOIN DEPOSITO ON depo_encargado = empl_codigo 
+WHERE depo_zona = depa_zona 
+GROUP BY empl_codigo
+ORDER BY COUNT(depo_encargado)
+GO
+
+---------------------------------------------------
+
+IF OBJECT_ID('dbo.recategorizar', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.recategorizar;
+GO
+
+CREATE PROCEDURE recategorizar
+AS
+BEGIN
+    DECLARE @depo_codigo INT, @nuevo_encargado INT
+    -- Todos los depósitos que no tienen como encargado un empleado que pertenezca a un departamento que no sea de la misma zona que el deposito
+    DECLARE cur CURSOR FOR ( 
+                                SELECT depo_codigo 
+                                FROM Empleado 
+                                JOIN Departamento ON depa_codigo = empl_departamento 
+                                JOIN DEPOSITO ON depo_encargado = empl_codigo 
+                                WHERE depo_zona <> depa_zona
+                            )
+    OPEN cur
+    FETCH NEXT FROM cur INTO @depo_codigo
+    WHILE @@FETCH_STATUS = 0
+
+    BEGIN
+        UPDATE DEPOSITO SET depo_encargado =  ( -- Empleado con menos depositos asignados que pertenezca a un departamento de esa zona. 
+                                                SELECT TOP 1 empl_codigo
+                                                FROM Empleado 
+                                                JOIN Departamento ON depa_codigo = empl_departamento 
+                                                WHERE depa_zona = ( SELECT depo_zona FROM DEPOSITO WHERE depo_codigo = @depo_codigo)
+                                                GROUP BY empl_codigo 
+                                                ORDER BY COUNT(*) ASC
+                                            )
+        WHERE depo_codigo = @depo_codigo
+
+        FETCH NEXT FROM cur INTO @depo_codigo
+    END
+
+    CLOSE cur
+    DEALLOCATE cu
+
+END
+GO       
+
 ---------------------------------------------------25---------------------------------------------------
 
---  Desarrolle el/los elementos de base de datos necesarios para que no se permita que la composición de los productos sea recursiva, o sea, que si el 
+--  Desarrolle el/los elementos de BD necesarios para que no se permita que la composición de los productos sea recursiva, o sea, que si el 
 -- producto A compone al producto B, dicho producto B no pueda ser compuesto por el producto A, hoy la regla se cumple.
 
 ---------------------------------------------------26---------------------------------------------------
 
--- Desarrolle el/los elementos de base de datos necesarios para que se cumpla automaticamente la regla de que una factura no puede contener productos 
+-- Desarrolle el/los elementos de BD necesarios para que se cumpla automaticamente la regla de que una factura no puede contener productos 
 -- que sean componentes de otros productos. 
 -- En caso de que esto ocurra no debe grabarse esa factura y debe emitirse un error en pantalla.
 
 ---------------------------------------------------27---------------------------------------------------
 
 -- Se requiere reasignar los encargados de stock de los diferentes depósitos. 
--- Para ello se solicita que realice el o los objetos de base de datos necesarios para asignar a cada uno de los depósitos el encargado que le corresponda, 
+-- Para ello se solicita que realice el o los objetos de BD necesarios para asignar a cada uno de los depósitos el encargado que le corresponda, 
 -- entendiendo que el encargado que le corresponde es cualquier empleado que no es jefe y que no es vendedor, o sea, que no está asignado a ningun cliente, 
 -- se deberán ir asignando tratando de que un empleado solo tenga un deposito asignado, en caso de no poder se irán aumentando la cantidad de depósitos
 -- progresivamente para cada empleado.
@@ -905,13 +1084,13 @@ GO
 ---------------------------------------------------28---------------------------------------------------
 
 -- Se requiere reasignar los vendedores a los clientes. 
--- Para ello se solicita que realice el o los objetos de base de datos necesarios para asignar a cada uno de los clientes el vendedor que le corresponda, 
+-- Para ello se solicita que realice el o los objetos de BD necesarios para asignar a cada uno de los clientes el vendedor que le corresponda, 
 -- entendiendo que el vendedor que le corresponde es aquel que le vendió más facturas a ese cliente, si en particular un cliente no tiene facturas compradas 
 -- se le deberá asignar el vendedor con más venta de la empresa, o sea, el que en monto haya vendido más.
 
 ---------------------------------------------------29---------------------------------------------------
 
--- Desarrolle el/los elementos de base de datos necesarios para que se cumpla automaticamente la regla de que una factura no puede contener productos que 
+-- Desarrolle el/los elementos de BD necesarios para que se cumpla automaticamente la regla de que una factura no puede contener productos que 
 -- sean componentes de diferentes productos. 
 -- En caso de que esto ocurra no debe grabarse esa factura y debe emitirse un error en pantalla.
 
@@ -923,7 +1102,7 @@ GO
 
 ---------------------------------------------------31---------------------------------------------------
 
--- Desarrolle el o los objetos de base de datos necesarios, para que un jefe no pueda tener más de 20 empleados a cargo, directa o indirectamente, 
+-- Desarrolle el o los objetos de BD necesarios, para que un jefe no pueda tener más de 20 empleados a cargo, directa o indirectamente, 
 -- si esto ocurre debera asignarsele un jefe que cumpla esa condición, si no existe un jefe para asignarle se le deberá colocar como jefe al gerente 
 -- general que es aquel que no tiene jefe.
 
