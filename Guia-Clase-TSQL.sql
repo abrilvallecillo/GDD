@@ -1175,11 +1175,13 @@ BEGIN
         BEGIN
             DELETE FROM Item_Factura WHERE item_numero+item_sucursal+item_tipo = @NUMERO+@SUCURSAL+@TIPO
             DELETE FROM Factura WHERE fact_numero+fact_sucursal+fact_tipo = @NUMERO+@SUCURSAL+@TIPO
+            
             FETCH NEXT FROM CURSORFacturas INTO @NUMERO,@SUCURSAL,@TIPO
         END
         
         CLOSE CURSORFacturas
         DEALLOCATE CURSORFacturas
+        
         RAISERROR ('no puede ingresar productos de mas de una familia en una misma factura.',1,1)
         ROLLBACK
     END

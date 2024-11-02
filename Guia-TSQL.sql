@@ -1064,14 +1064,73 @@ GO
 
 ---------------------------------------------------25---------------------------------------------------
 
---  Desarrolle el/los elementos de BD necesarios para que no se permita que la composición de los productos sea recursiva, o sea, que si el 
+-- Desarrolle el/los elementos de BD necesarios para que no se permita que la composición de los productos sea recursiva, o sea, que si el 
 -- producto A compone al producto B, dicho producto B no pueda ser compuesto por el producto A, hoy la regla se cumple.
+
+CREATE TRIGGER EvitarRecursividad ON Composicion INSTEAD OF INSERT, UPDATE -- Utilizamos INSTEAD OF para evitar tener un porducto compuesto por si mismo
+AS
+BEGIN
+    DECLARE @ProductoPadre CHAR(8), @ProductoHijo CHAR(8)
+    DECLARE cur CURSOR FOR ( SELECT comp_producto, comp_componente FROM inserted )
+    OPEN cur
+    FETCH NEXT FROM cur INTO @ProductoPadre, @ProductoHijo
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+    -- Verificar si existe una relación inversa que causaría recursividad
+        IF EXISTS ( SELECT * FROM Composiciones WHERE comp_producto = @ProductoHijo AND comp_componente = @ProductoPadre )
+            BEGIN
+                RAISERROR ('No se permite la composición recursiva de productos.', 16, 1);
+                ROLLBACK TRANSACTION;
+                RETURN
+            END
+        FETCH NEXT FROM cur INTO @ProductoPadre, @ProductoHijo
+    END
+    CLOSE cursor_comp
+	DEALLOCATE cursor_comp
+    
+    -- Insertar si no hay recursividad
+    INSERT INTO Composicion (comp_producto, comp_componente) SELECT @ProductoPadre, @ProductoHijo FROM inserted;
+    
+END
+GO
 
 ---------------------------------------------------26---------------------------------------------------
 
 -- Desarrolle el/los elementos de BD necesarios para que se cumpla automaticamente la regla de que una factura no puede contener productos 
 -- que sean componentes de otros productos. 
 -- En caso de que esto ocurra no debe grabarse esa factura y debe emitirse un error en pantalla.
+
+CREATE TRIGGER EvitarProductosComponentesEnFactura ON Factura INSTEAD OF INSERT -- Utilizamos INSTEAD OF para evitar tener una factura contenga productos que sean componentes de otros productos
+AS
+BEGIN
+    IF EXISTS (
+        SELECT *
+        FROM Factura --inserted
+        JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+        WHERE item_producto IN ( SELECT comp_componente FROM Composicion )
+    )
+    BEGIN
+        DECLARE @NUMERO char(8),@SUCURSAL char(4),@TIPO char(1)
+        DECLARE CURSORFacturas CURSOR FOR SELECT fact_numero,fact_sucursal,fact_tipo FROM inserted
+        OPEN CURSORFacturas
+        FETCH NEXT FROM CURSORFacturas INTO @NUMERO,@SUCURSAL,@TIPO
+        WHILE @@FETCH_STATUS = 0
+        
+        BEGIN
+            DELETE FROM Item_Factura WHERE item_numero + item_sucursal + item_tipo = @NUMERO + @SUCURSAL + @TIPO
+            DELETE FROM Factura WHERE fact_numero + fact_sucursal + fact_tipo = @NUMERO + @SUCURSAL + @TIPO
+            
+            FETCH NEXT FROM CURSORFacturas INTO @NUMERO, @SUCURSAL, @TIPO
+        END
+        
+        CLOSE CURSORFacturas
+        DEALLOCATE CURSORFacturas
+        
+        RAISERROR ('Error: La factura contiene productos que son componentes de otros productos. No se permite la grabación.', 16, 1)
+        ROLLBACK
+    END
+END
+GO
 
 ---------------------------------------------------27---------------------------------------------------
 
