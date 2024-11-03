@@ -1105,7 +1105,7 @@ AS
 BEGIN
     IF EXISTS (
         SELECT *
-        FROM Factura --inserted
+        FROM inserted
         JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
         WHERE item_producto IN ( SELECT comp_componente FROM Composicion )
     )
@@ -1140,6 +1140,45 @@ GO
 -- se deberán ir asignando tratando de que un empleado solo tenga un deposito asignado, en caso de no poder se irán aumentando la cantidad de depósitos
 -- progresivamente para cada empleado.
 
+---------------------------------------------------
+
+-- El encargado que le corresponde es cualquier empleado que no es jefe y que no es vendedor
+SELECT *
+FROM Empleado
+WHERE empl_codigo NOT IN ( SELECT empl_jefe FROM Empleado WHERE empl_jefe IS NOT NULL GROUP BY empl_jefe )
+AND empl_codigo NOT IN ( SELECT fact_vendedor FROM Factura WHERE fact_vendedor IS NOT NULL  GROUP BY fact_vendedor )
+GO
+
+---------------------------------------------------
+
+CREATE PROCEDURE ReasignarEncargadosDepositos
+AS
+BEGIN
+    DECLARE @deposito char(2)
+    DECLARE curDepositos CURSOR FOR ( SELECT depo_codigo FROM Deposito )
+    OPEN curDepositos
+    FETCH NEXT FROM curDepositos INTO @deposito
+    WHILE @@FETCH_STATUS = 0
+    
+    BEGIN
+        UPDATE Deposito SET depo_encargado = ( -- El empleado qeu menos depositos tenga a su cargo
+                                                SELECT TOP 1 empl_codigo 
+                                                FROM Empleado
+                                                LEFT JOIN DEPOSITO ON depo_encargado = empl_codigo
+                                                WHERE empl_codigo NOT IN ( SELECT empl_jefe FROM Empleado WHERE empl_jefe IS NOT NULL ) -- No es jefe
+                                                AND empl_codigo NOT IN ( SELECT clie_vendedor FROM Cliente WHERE clie_vendedor IS NOT NULL ) -- No es vendedor
+                                                GROUP BY empl_codigo
+                                                ORDER BY COUNT ( depo_encargado ) ASC
+                                            ) 
+        WHERE depo_codigo = @deposito
+        FETCH NEXT FROM curDepositos INTO @deposito
+    END
+
+    CLOSE curDepositos
+    DEALLOCATE curDepositos
+END
+GO
+
 ---------------------------------------------------28---------------------------------------------------
 
 -- Se requiere reasignar los vendedores a los clientes. 
@@ -1147,17 +1186,128 @@ GO
 -- entendiendo que el vendedor que le corresponde es aquel que le vendió más facturas a ese cliente, si en particular un cliente no tiene facturas compradas 
 -- se le deberá asignar el vendedor con más venta de la empresa, o sea, el que en monto haya vendido más.
 
+CREATE PROCEDURE ReasignarVendedoresAClientes
+AS
+BEGIN
+    DECLARE @cliente char(8)
+    DECLARE curClientes CURSOR FOR ( SELECT clie_codigo FROM Cliente )
+    OPEN curClientes
+    FETCH NEXT FROM curClientes INTO @cliente
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        IF EXISTS ( SELECT * FROM Factura WHERE fact_cliente = @cliente )
+            UPDATE Cliente
+            SET clie_vendedor = ( -- El vendedor que le corresponde es aquel que le vendió más facturas a ese cliente
+                                    SELECT TOP 1 fact_vendedor
+                                    FROM Factura
+                                    WHERE fact_cliente = @cliente
+                                    GROUP BY fact_vendedor
+                                    ORDER BY COUNT( fact_vendedor ) DESC
+                                )
+            WHERE clie_codigo = @cliente
+        
+        ELSE
+            UPDATE Cliente
+            SET clie_vendedor = (  -- Asignar el vendedor con mayor monto total en ventas
+                                    SELECT TOP 1 fact_vendedor
+                                    FROM Factura
+                                    GROUP BY fact_vendedor
+                                    ORDER BY SUM (fact_total) DESC
+                                )
+            WHERE clie_codigo = @cliente
+
+        FETCH NEXT FROM curClientes INTO @cliente
+    END
+
+    CLOSE curClientes
+    DEALLOCATE curClientes
+END
+GO
+
 ---------------------------------------------------29---------------------------------------------------
 
 -- Desarrolle el/los elementos de BD necesarios para que se cumpla automaticamente la regla de que una factura no puede contener productos que 
 -- sean componentes de diferentes productos. 
 -- En caso de que esto ocurra no debe grabarse esa factura y debe emitirse un error en pantalla.
 
+CREATE TRIGGER VerificarComponentesMultiples ON Factura INSTEAD OF INSERT 
+AS
+BEGIN
+-- Una factura no puede contener productos que sean componentes de diferentes productos. 
+    IF EXISTS (
+        SELECT *
+        FROM inserted
+        JOIN Item_Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
+        WHERE item_producto IN (
+                                    SELECT comp_componente 
+                                    FROM Composicion 
+                                    GROUP BY comp_componente 
+                                    HAVING COUNT ( DISTINCT comp_producto ) > 2 -- Ningun componente aparece en 2 productos
+                                )
+    )
+    BEGIN
+        DECLARE @NUMERO char(8), @SUCURSAL char(4), @TIPO char(1)
+        DECLARE CURSORFacturas CURSOR FOR ( SELECT fact_numero, fact_sucursal, fact_tipo FROM inserted )
+        OPEN CURSORFacturas
+        FETCH NEXT FROM CURSORFacturas INTO @NUMERO,@SUCURSAL,@TIPO
+        WHILE @@FETCH_STATUS = 0
+        
+        BEGIN
+            DELETE FROM Item_Factura WHERE item_numero + item_sucursal + item_tipo = @NUMERO + @SUCURSAL + @TIPO
+            DELETE FROM Factura WHERE fact_numero + fact_sucursal + fact_tipo = @NUMERO + @SUCURSAL + @TIPO
+            
+            FETCH NEXT FROM CURSORFacturas INTO @NUMERO, @SUCURSAL, @TIPO
+        END
+        
+        CLOSE CURSORFacturas
+        DEALLOCATE CURSORFacturas
+        
+        RAISERROR ('Error: La factura contiene productos que son componentes de otros productos. No se permite la grabación.', 16, 1)
+        ROLLBACK
+    END
+END
+GO
+
 ---------------------------------------------------30---------------------------------------------------
 
 -- Agregar el/los objetos necesarios para crear una regla por la cual un cliente no pueda comprar más de 100 unidades en el mes de ningún producto, 
 -- si esto ocurre no se deberá ingresar la operación y se deberá emitir un mensaje “Se ha superado el límite máximo de compra de un producto”. 
 -- Se sabe que esta regla se cumple y que las facturas no pueden ser modificadas.
+
+CREATE TRIGGER LimiteMensualCompraProducto ON Item_Factura INSTEAD OF INSERT
+AS
+BEGIN
+-- Un cliente no pueda comprar más de 100 unidades en el mes de ningún producto
+    IF EXISTS (
+        SELECT fact_cliente, item_producto , SUM (item_cantidad), MONTH( fact_fecha )
+        FROM inserted
+        JOIN Factura ON fact_tipo = item_tipo AND fact_sucursal = item_sucursal AND fact_numero = item_numero
+        GROUP BY fact_cliente , item_producto , MONTH( fact_fecha )
+        HAVING SUM (item_cantidad) > 100
+    )
+    BEGIN
+        DECLARE @NUMERO char(8), @SUCURSAL char(4), @TIPO char(1)
+        DECLARE CURSORFacturas CURSOR FOR ( SELECT item_numero, item_sucursal, item_tipo FROM inserted )
+        OPEN CURSORFacturas
+        FETCH NEXT FROM CURSORFacturas INTO @NUMERO,@SUCURSAL,@TIPO
+        WHILE @@FETCH_STATUS = 0
+        
+        BEGIN
+            DELETE FROM Item_Factura WHERE item_numero + item_sucursal + item_tipo = @NUMERO + @SUCURSAL + @TIPO
+            DELETE FROM Factura WHERE fact_numero + fact_sucursal + fact_tipo = @NUMERO + @SUCURSAL + @TIPO
+            
+            FETCH NEXT FROM CURSORFacturas INTO @NUMERO, @SUCURSAL, @TIPO
+        END
+        
+        CLOSE CURSORFacturas
+        DEALLOCATE CURSORFacturas
+        
+        RAISERROR ('Se ha superado el límite máximo de compra de un producto', 16, 1)
+        ROLLBACK TRANSACTION
+        RETURN
+    END
+END
+GO
 
 ---------------------------------------------------31---------------------------------------------------
 
