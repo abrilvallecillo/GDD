@@ -936,25 +936,6 @@ GO
 -- Desarrolle el/los elementos de BD necesarios para que ante una venta automaticamante se controle que en una misma factura no puedan venderse más de dos productos con composición. 
 -- Si esto ocurre de bera rechazarse la factura.
 
-CREATE TRIGGER NoProductosCompuestos ON Factura INSTEAD OF INSERT -- Utilizamos INSTEAD OF para evitar tener una factura con +2 productos compuestos
-AS
-BEGIN
-    IF (
-        SELECT COUNT ( item_producto )
-        FROM inserted
-        JOIN Item_Factura ON fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
-        WHERE item_producto IN ( SELECT comp_producto FROM Composicion ) -- Productos con Composicion
-        GROUP BY item_tipo,item_sucursal,item_numero
-    ) >= 2
-    --> BORRA SOLO LOS QUE TIENEN MAS DE DOS PRODUCTOS COMPUESTOS
-    BEGIN
-        RAISERROR ('Error: La factura contiene mas de dos productos compuestos. No se permite la grabación.', 16, 1)
-        ROLLBACK
-    END
-END
-GO
-
----------------------------------------------------
 
 CREATE TRIGGER NoProductosCompuestosCURSOR ON Factura INSTEAD OF INSERT -- Utilizamos INSTEAD OF para evitar tener una factura con +2 productos compuestos
 AS
@@ -1315,9 +1296,54 @@ GO
 -- si esto ocurre debera asignarsele un jefe que cumpla esa condición, si no existe un jefe para asignarle se le deberá colocar como jefe al gerente 
 -- general que es aquel que no tiene jefe.
 
+CREATE TRIGGER ReasignarEmpleados ON Empleado INSTEAD OF UPDATE, DELETE
+AS
+BEGIN
+    -- Verificar si algún jefe excede los 20 empleados a cargo
+    IF EXISTS (SELECT empl_codigo FROM inserted WHERE dbo.ContarEmpleados(empl_codigo) > 20)
+        
+        BEGIN
+            DECLARE @JefeExcedente NUMERIC(6), @Empleado NUMERIC(6), @NuevoJefe NUMERIC(6);
+            DECLARE CursorJefesExcedentes CURSOR FOR ( SELECT empl_codigo FROM Empleado WHERE dbo.ContarEmpleados(empl_codigo) > 20 ) -- Definir un cursor para iterar sobre los jefes que exceden el límite de empleados
+            OPEN CursorJefesExcedentes
+            FETCH NEXT FROM CursorJefesExcedentes INTO @JefeExcedente
+            WHILE @@FETCH_STATUS = 0
+            
+            BEGIN
+                DECLARE CursorEmpleados CURSOR FOR ( SELECT empl_codigo FROM Empleado WHERE empl_jefe = @JefeExcedente ) -- Crear un cursor para los empleados del jefe excedente
+                OPEN CursorEmpleados
+                FETCH NEXT FROM CursorEmpleados INTO @Empleado
+                WHILE @@FETCH_STATUS = 0
+                
+                BEGIN
+                    -- Buscar un jefe alternativo con menos de 20 empleados
+                    SELECT TOP 1 @NuevoJefe = empl_codigo
+                    FROM Empleado
+                    WHERE empl_codigo IN (SELECT empl_jefe FROM Empleado)
+                    AND dbo.ContarEmpleados(empl_codigo) < 20
+                    ORDER BY dbo.ContarEmpleados(empl_codigo) ASC
 
+                    -- Si no se encuentra un jefe con capacidad, asignar al gerente general (sin jefe asignado)
+                    IF ( @NuevoJefe IS NULL )
+                        SELECT TOP 1 @NuevoJefe = empl_codigo FROM Empleado WHERE empl_jefe IS NULL
+                        
+                    -- Actualizar el jefe del empleado
+                    UPDATE Empleado SET empl_jefe = @NuevoJefe WHERE empl_codigo = @Empleado
 
+                    FETCH NEXT FROM CursorEmpleados INTO @Empleado;
+                END
 
+                CLOSE CursorEmpleados
+                DEALLOCATE CursorEmpleados
+
+                FETCH NEXT FROM CursorJefesExcedentes INTO @JefeExcedente
+            END
+
+            CLOSE CursorJefesExcedentes
+            DEALLOCATE CursorJefesExcedentes
+        END
+END
+GO
 
 
 /*

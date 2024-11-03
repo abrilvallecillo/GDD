@@ -1311,28 +1311,37 @@ GO
 
 ---------------------------------------------------31---------------------------------------------------
 
-CREATE PROCEDURE ej31 
-AS 
+CREATE PROC dbo.ejercicio31
+AS
 BEGIN
-    DECLARE @EMPLEADO NUMERIC(6), @JEFE_ALTERNATIVO NUMERIC(6), @CANTIDAD INT 
-    DECLARE CURSOR_empleado CURSOR FOR SELECT empl_codigo FROM Empleado WHERE dbo.ej11(empl_codigo) > 20
-    OPEN CURSOR_empleado
-    FETCH NEXT FROM CURSOR_empleado INTO @EMPLEADO
-    WHILE (@@FETCH_STATUS = 0)
-    -- Busco a un jefe alternativo para redistribuir
+	DECLARE @jefe numeric(6,0), @nuevoJefe numeric(6,0)
+	DECLARE cursor_jefe CURSOR FOR ( SELECT empl_codigo FROM Empleado WHERE empl_codigo IN ( SELECT empl_jefe FROM Empleado WHERE empl_jefe IS NOT NULL ) ) -- TRAE TODOS LOS JEFES
+	OPEN cursor_jefe
+	FETCH NEXT FROM cursor_jefe INTO @jefe
+	WHILE @@FETCH_STATUS = 0
+	
     BEGIN
-        SELECT @JEFE_ALTERNATIVO = empl_codigo FROM Empleado WHERE empl_codigo = @empleado AND dbo.ej11(empl_codigo) < 20
-        
-        -- Si no tengo un jefe alternativo, busco al gerente gral
-        IF @JEFE_ALTERNATIVO IS NULL
-            SELECT @JEFE_ALTERNATIVO = empl_codigo FROM Empleado WHERE empl_jefe IS NULL
-        
-        -- Redistribuyo a los excedentes
-        UPDATE Empleado SET empl_jefe = @JEFE_ALTERNATIVO WHERE empl_jefe = @EMPLEADO
-        
-        FETCH NEXT FROM CURSOR_empleado INTO @EMPLEADO
-    END
-    CLOSE CURSOR_empleado
-    DEALLOCATE CURSOR_empleado
+		IF ( dbo.empleadosACargo(@jefe) > 20 ) 
+		    BEGIN
+			    SET @nuevoJefe = ( -- EL NUEVO JEFE
+                                    SELECT empl_codigo
+									FROM Empleado
+									WHERE dbo.empleadosACargo(empl_codigo) < 20 -- TIENE MENOS DE 20 EMPLEADOS
+                                    AND dbo.empleadosACargo(empl_codigo) >= 1 -- ASEGURARSE QUE ES JEFE
+								)
+
+                IF ( @nuevoJefe IS NOT NULL ) 
+                    UPDATE Empleado SET empl_jefe = @nuevoJefe WHERE empl_codigo = @jefe
+                
+                ELSE
+                    UPDATE Empleado SET empl_jefe = ( SELECT empl_codigo FROM Empleado WHERE empl_jefe IS NULL ) WHERE empl_codigo = @jefe
+			
+		    END
+		
+        FETCH NEXT FROM cursor_jefe INTO @jefe
+
+	END
+	CLOSE cursor_jefe
+	DEALLOCATE cursor_jefe
 END
-GO
+GO		
