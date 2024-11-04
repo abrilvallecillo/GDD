@@ -431,7 +431,7 @@ CREATE FUNCTION ej11b (@codigo NUMERIC(6))
 RETURNS INT
 AS 
 BEGIN
-    RETURN (SELECT isnull(count(*) + sum(dbo.ej11(empl_codigo)), 0) FROM Empleado WHERE empl_jefe = @codigo)
+    RETURN (SELECT isnull ( count(*) + sum(dbo.ej11(empl_codigo)), 0) FROM Empleado WHERE empl_jefe = @codigo)
 END
 GO
 
@@ -594,7 +594,7 @@ BEGIN
     IF EXISTS ( SELECT 1 FROM Composicion WHERE comp_producto = @producto )
     BEGIN
         DECLARE @componente CHAR(8), @cantidad INT, @comp_precio DECIMAL(18, 2)
-        DECLARE cur CURSOR FOR SELECT comp_componente, comp_cantidad FROM Composicion WHERE comp_producto = @producto
+        DECLARE cur CURSOR FOR ( SELECT comp_componente, comp_cantidad FROM Composicion WHERE comp_producto = @producto ) 
         OPEN cur
         FETCH NEXT FROM cur INTO @componente, @cantidad
         WHILE @@FETCH_STATUS = 0
@@ -617,9 +617,32 @@ GO
 
 ---------------------------------------------------
 
-SELECT dbo.CalcularPrecioProducto('00001104')  
+CREATE FUNCTION CalcularPrecioTotal ( @Producto char(8) )
+RETURNS DECIMAL(10, 2)
+AS
+BEGIN
+    RETURN (
+            SELECT ISNULL ( 
+                SUM ( prod_precio ) -- Si no tiene componentes
+                + SUM ( dbo.CalcularSalarioTotal ( comp_componente ) -- Precio de los componentes
+                ) , 0 ) 
+            FROM Producto 
+            JOIN Composicion ON comp_producto = prod_codigo
+            WHERE prod_codigo = @Producto 
+        )
+END 
 GO
 
+---------------------------------------------------
+
+SELECT dbo.CalcularPrecioProducto('00001104')  
+GO -- 6.91
+
+SELECT dbo.CalcularPrecioProducto('00000030')  
+GO -- 24483.75
+
+SELECT * FROM Producto
+GO
 ---------------------------------------------------16---------------------------------------------------
 
 -- Desarrolle el/los elementos de BD necesarios para que ante una venta automaticamante se descuenten del stock los articulos vendidos. 
