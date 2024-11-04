@@ -1296,24 +1296,25 @@ GO
 -- si esto ocurre debera asignarsele un jefe que cumpla esa condición, si no existe un jefe para asignarle se le deberá colocar como jefe al gerente 
 -- general que es aquel que no tiene jefe.
 
-CREATE TRIGGER ReasignarEmpleados ON Empleado INSTEAD OF UPDATE, DELETE
+CREATE PROCEDURE ReasignarEmpleados
 AS
 BEGIN
     -- Verificar si algún jefe excede los 20 empleados a cargo
-    IF EXISTS (SELECT empl_codigo FROM inserted WHERE dbo.ContarEmpleados(empl_codigo) > 20)
+    IF EXISTS ( SELECT empl_codigo FROM Empleado WHERE dbo.ContarEmpleados(empl_codigo) > 20 )
         
         BEGIN
-            DECLARE @JefeExcedente NUMERIC(6), @Empleado NUMERIC(6), @NuevoJefe NUMERIC(6);
+            DECLARE @JefeExcedente NUMERIC(6), @Empleado NUMERIC(6), @NuevoJefe NUMERIC(6), @cantidad int
             DECLARE CursorJefesExcedentes CURSOR FOR ( SELECT empl_codigo FROM Empleado WHERE dbo.ContarEmpleados(empl_codigo) > 20 ) -- Definir un cursor para iterar sobre los jefes que exceden el límite de empleados
             OPEN CursorJefesExcedentes
-            FETCH NEXT FROM CursorJefesExcedentes INTO @JefeExcedente
+            FETCH NEXT FROM CursorJefesExcedentes INTO @JefeExcedente, @cantidad
             WHILE @@FETCH_STATUS = 0
             
             BEGIN
-                DECLARE CursorEmpleados CURSOR FOR ( SELECT empl_codigo FROM Empleado WHERE empl_jefe = @JefeExcedente ) -- Crear un cursor para los empleados del jefe excedente
+                DECLARE @cantidadEmpleados int = @cantidad
+                DECLARE CursorEmpleados CURSOR FOR ( SELECT empl_codigo, COUNT(*)  FROM Empleado WHERE empl_jefe = @JefeExcedente GROUP BY empl_codigo ) -- Crear un cursor para los empleados del jefe excedente
                 OPEN CursorEmpleados
                 FETCH NEXT FROM CursorEmpleados INTO @Empleado
-                WHILE @@FETCH_STATUS = 0
+                WHILE @@FETCH_STATUS = 0 OR @cantidadEmpleados < 21
                 
                 BEGIN
                     -- Buscar un jefe alternativo con menos de 20 empleados
@@ -1330,6 +1331,8 @@ BEGIN
                     -- Actualizar el jefe del empleado
                     UPDATE Empleado SET empl_jefe = @NuevoJefe WHERE empl_codigo = @Empleado
 
+                    SET @cantidadEmpleados -= 1 
+
                     FETCH NEXT FROM CursorEmpleados INTO @Empleado;
                 END
 
@@ -1345,6 +1348,69 @@ BEGIN
 END
 GO
 
+
+
+
+IF OBJECT_ID('dbo.ReasignarEmpleados', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.ReasignarEmpleados;
+GO
+
+CREATE PROCEDURE ReasignarProductos -- Para que dicha regla de negocio quede implementada --> Nunca dice que automaticamente
+AS
+BEGIN
+    -- Existen rubros que tengan más de 20 productos asignados
+    IF EXISTS ( SELECT rubr_id FROM Producto JOIN Rubro ON prod_rubro = rubr_id GROUP BY rubr_id HAVING COUNT (rubr_id) > 20 )
+        BEGIN
+            DECLARE @rubro_actual char(4), @cantidadDeProductos int
+            DECLARE cur CURSOR FOR ( SELECT rubr_id, COUNT(*) FROM Producto JOIN Rubro ON prod_rubro = Rubro.rubr_id GROUP BY rubr_id HAVING COUNT (rubr_id) > 20 )
+            OPEN cur
+            FETCH NEXT FROM cur INTO @rubro_actual, @cantidadDeProductos
+            WHILE @@FETCH_STATUS = 0
+
+            BEGIN
+                -- Reubicar productos de @rubro_actual en otros rubros que tengan menos de 20 productos
+                DECLARE @producto char(8),  @cantidadProductosEnRubro int = @cantidadDeProductos
+                DECLARE cur_productos CURSOR FOR ( SELECT prod_codigo FROM Producto WHERE prod_rubro = @rubro_actual )
+                OPEN cur_productos
+                FETCH NEXT FROM cur_productos INTO @producto
+                WHILE @@FETCH_STATUS = 0 OR @cantidadProductosEnRubro < 21
+
+                BEGIN
+                    IF EXISTS ( SELECT TOP 1 rubr_id FROM Producto JOIN Rubro ON prod_rubro = rubr_id GROUP BY rubr_id HAVING COUNT(*) < 20 ORDER BY COUNT(*) ASC )
+                        -- Actualizar el producto para asignarlo al nuevo rubro
+                        UPDATE Producto SET prod_rubro = ( 
+                                                            SELECT TOP 1 rubr_id
+                                                            FROM Rubro
+                                                            JOIN Producto ON prod_rubro = rubr_id
+                                                            GROUP BY rubr_id
+                                                            HAVING COUNT(*) < 20
+                                                            ORDER BY COUNT(*) ASC
+                                                        ) 
+                        WHERE prod_codigo = @producto
+                    
+                    ELSE
+                        BEGIN
+                            IF NOT EXISTS ( SELECT rubr_id FROM Rubro WHERE rubr_detalle = 'Rubro reasignado' )  
+                                INSERT INTO Rubro (RUBR_ID,rubr_detalle) VALUES ('xx','Rubro reasignado')
+                        
+                            UPDATE Producto SET prod_rubro = ( SELECT rubr_id FROM Rubro WHERE rubr_detalle = 'Rubro reasignado' ) WHERE prod_codigo = @producto
+                        END
+
+			        SET @cantidadProductosEnRubro -= 1 -- Cuando llegue a 20 paso al siguente rubro
+
+                    FETCH NEXT FROM cur_productos INTO @producto
+                END
+
+                    CLOSE cur_productos
+                    DEALLOCATE cur_productos
+                    FETCH NEXT FROM cur INTO @rubro_actual
+            END
+            
+            CLOSE cur
+            DEALLOCATE cur
+        END
+END
+GO
 
 /*
 DECLARE Employee_Cursor CURSOR FOR SELECT LastName, FirstName FROM Employees
