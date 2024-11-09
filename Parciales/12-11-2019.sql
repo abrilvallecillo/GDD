@@ -1,5 +1,3 @@
----------------------------------------------------12-11-2019---------------------------------------------------
-
 -- Estadistica de ventas especiales --> MI UNIVERSO SON LAS F_E
 -- La factura es especial si tiene mas de 1 producto con composicion vendido.
     -- year --> F_E

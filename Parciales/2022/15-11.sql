@@ -51,7 +51,9 @@ WHERE YEAR ( fact_fecha ) = 2012
 GROUP BY clie_codigo, clie_razon_social
 HAVING SUM ( item_cantidad * item_precio ) > ( SELECT AVG ( fact_total ) FROM  Factura WHERE YEAR ( fact_fecha ) = 2012 )
 order by clie_razon_social ASC,
-    CASE WHEN SUM(item_cantidad * item_precio) BETWEEN (SELECT SUM(fact_total) * 0.20 FROM Factura WHERE YEAR(fact_fecha) = 2012) AND (SELECT SUM(fact_total) * 0.30 FROM Factura WHERE YEAR(fact_fecha) = 2012) 
+    CASE WHEN SUM ( item_cantidad * item_precio ) 
+            BETWEEN ( SELECT SUM (fact_total ) * 0.20 FROM Factura WHERE YEAR ( fact_fecha ) = 2012 ) 
+            AND ( SELECT SUM ( fact_total) * 0.30 FROM Factura WHERE YEAR ( fact_fecha ) = 2012 ) 
         THEN 0
         ELSE 1
     END,
@@ -111,7 +113,7 @@ BEGIN
                 IF EXISTS ( SELECT * FROM dbo.Stock WHERE stoc_producto = @PRODUCTO AND stoc_deposito = '00' AND stoc_cantidad >= @CANTIDAD )
                 BEGIN
                     -- Descontar el stock del producto simple
-                    UPDATE dbo.Stock SET stoc_cantidad = stoc_cantidad - @CANTIDAD WHERE stoc_producto = @PRODUCTO AND stoc_deposito = '00';
+                    UPDATE Stock SET stoc_cantidad = stoc_cantidad - @CANTIDAD WHERE stoc_producto = @PRODUCTO AND stoc_deposito = '00';
 
                     -- Insertar el producto simple en la tabla Item_Factura
                     INSERT INTO Item_Factura (item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio)
@@ -125,4 +127,77 @@ BEGIN
     CLOSE CursorProductos;
     DEALLOCATE CursorProductos;
 END;
+GO
+
+---------------------------------------------------
+
+
+CREATE TRIGGER tr_descontar_stock ON Item_Factura AFTER INSERT --INSTEAD OF INSERT
+AS
+BEGIN      
+    -- Variables
+    DECLARE @producto char(8), @cantidad_vendida decimal(12,2), @componente char(8), @cantidad_componente decimal(12,2)
+    
+    -- Cursor
+    DECLARE cursor_producto CURSOR FOR ( SELECT item_producto, SUM(item_cantidad) FROM INSERTED GROUP BY item_producto )
+    OPEN cursor_producto
+    FETCH cursor_producto INTO @producto, @cantidad_vendida
+    WHILE @@FETCH_STATUS = 0
+    
+    BEGIN
+        -- Si no es compuesto, descuento sobre el producto original
+        IF NOT EXISTS ( SELECT * FROM Composicion WHERE comp_producto = @producto )
+            BEGIN
+                UPDATE STOCK 
+                SET stoc_cantidad = stoc_cantidad - @cantidad_vendida 
+                WHERE stoc_deposito = '00' AND stoc_producto = @producto
+
+                IF ( @@ERROR != 0 )
+                    PRINT ( CONCAT ( 'EL PRODUCTO ', @producto, 'YA NO TIENE STOCK' ) )
+                
+                ELSE
+                    BEGIN
+                        INSERT INTO Item_Factura (item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio)
+                        SELECT item_tipo, item_sucursal, item_numero,item_producto, item_cantidad, item_precio
+                        FROM INSERTED 
+                        WHERE item_producto = @producto
+                    END
+            END
+        ELSE
+            BEGIN
+                -- Si es compuesto itero y descuento sobre los componentes
+                DECLARE cursor_componente CURSOR FOR ( SELECT comp_componente, comp_cantidad FROM Composicion WHERE comp_producto = @producto )
+                OPEN cursor_componente
+                FETCH cursor_componente INTO @componente, @cantidad_componente
+                WHILE @@FETCH_STATUS = 0
+                
+                BEGIN
+                    UPDATE STOCK 
+                    SET stoc_cantidad = stoc_cantidad - @cantidad_vendida * @cantidad_componente 
+                    WHERE stoc_deposito = '00' AND stoc_producto = @componente
+
+                    IF ( @@ERROR != 0 )
+                        PRINT ( CONCAT ( 'EL PRODUCTO ', @producto, 'YA NO TIENE STOCK' ) )
+                
+                    ELSE
+                        BEGIN
+                            INSERT INTO Item_Factura (item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio)
+                            SELECT item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio
+                            FROM INSERTED 
+                            WHERE item_producto = @componente
+                            
+                            FETCH cursor_componente INTO @componente,@cantidad_componente
+                        END
+
+                    CLOSE cursor_componente
+                    DEALLOCATE cursor_componente
+
+                    FETCH cursor_producto INTO @producto,@cantidad_vendida
+                END
+            END  
+             
+        CLOSE cursor_producto
+        DEALLOCATE cursor_producto
+    END
+END
 GO
