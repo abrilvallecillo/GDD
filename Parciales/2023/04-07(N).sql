@@ -47,3 +47,8 @@ GROUP BY zona_detalle, zona_codigo
 HAVING COUNT ( DISTINCT depo_codigo ) >= 3 -- Todas las zonas que tengan 3 (tres) o más depósitos
 ORDER BY zona_detalle -- Ordenado por monto total vendido del encargado descendiente
 
+
+---------------------------------------------------
+
+-- Implementar una regla de negocio en línea donde se valide que nunca un producto compuesto pueda estar compuesto por 
+-- componentes de rubros distintos a el.

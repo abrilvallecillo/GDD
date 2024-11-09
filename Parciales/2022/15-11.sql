@@ -1,5 +1,3 @@
----------------------------------------------------15-11-2022---------------------------------------------------
-
 -- Realizar una consulta SQL que permita saber los clientes que compraron todos los rubros disponibles del sistema en el 2012.
 -- De estos clientes mostrar, siempre para el 2012:
     -- El código del cliente --> C
