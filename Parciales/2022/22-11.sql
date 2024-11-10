@@ -37,7 +37,25 @@ ORDER BY (
     WHERE item.item_producto IN ( SELECT comp_componente FROM Composicion WHERE comp_producto = prod_codigo )
     AND YEAR(fact.fact_fecha) = 2012
 ) DESC;
+GO
 
 ---------------------------------------------------
 
--- Implementar una regla de negocio en linea donde se valide que nunca un producto compuesto pueda estar compuesto por componentes de rubros distintos a el.
+-- Implementar una regla de negocio en linea donde se valide que nunca un producto compuesto pueda estar 
+-- compuesto por componentes de rubros distintos a el.
+
+CREATE PROCEDURE ValidarComposicionRubro -- Para que dicha regla de negocio quede implementada --> Nunca dice que automaticamente
+AS
+BEGIN
+    -- Revisar si algún producto en la composición tiene un rubro diferente al producto compuesto
+    IF EXISTS (
+        SELECT *
+        FROM Composicion -- Producto compuesto
+        JOIN Producto P ON P.prod_codigo = comp_producto -- Producto
+        JOIN Producto C ON C.prod_codigo = comp_componente -- Componente
+        WHERE P.prod_rubro <> C.prod_rubro -- Rubro del Producto distinto a el de los Componentes
+    )
+
+    PRINT ('Existen productos compuestos que tienen componentes de rubros diferentes.')
+    
+END

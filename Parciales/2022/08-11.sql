@@ -28,6 +28,7 @@ AND item_producto IN (
                     )
 GROUP BY fact_cliente, clie_razon_social, item_producto
 ORDER BY COUNT(DISTINCT item_producto) DESC
+GO
 
 -- Los productos que se vendieron en todos los meses del 2012
 SELECT item_producto
@@ -36,9 +37,11 @@ JOIN Factura ON fact_tipo + fact_sucursal + fact_numero = item_tipo + item_sucur
 WHERE YEAR ( fact_fecha ) = 2012
 GROUP BY item_producto
 HAVING COUNT ( DISTINCT MONTH ( fact_fecha ) ) = 12 -- Compro un producto en todos los meses del 2012
+GO
 
 ---------------------------------------------------
 
 -- Implementar una regla de negocio de validación en línea que permita implementar una lógica de control de precios en las ventas. 
 -- Se deberá poder seleccionar una lista de rubros y aquellos productos de los rubros que sean los seleccionados no podrán aumentar por mes más de un 2 %. 
 -- En caso que no se tenga referencia del mes anterior no validar dicha regia.
+
